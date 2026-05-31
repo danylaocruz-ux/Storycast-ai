@@ -70,33 +70,36 @@ jobs:
 
       - name: Corrigir compileSdk em todos os plugins (pub-cache)
         run: |
-          echo "=== Patching Groovy build.gradle nos plugins ==="
-          find /root/.pub-cache -name "build.gradle" 2>/dev/null | while read GRADLE; do
+          PUB_CACHE="$HOME/.pub-cache"
+          echo "HOME=$HOME" | tee -a /tmp/patch.log
+          echo "pub-cache: $PUB_CACHE" | tee -a /tmp/patch.log
+          ls "$PUB_CACHE/hosted/" 2>/dev/null | head -3 | tee -a /tmp/patch.log
+
+          echo "=== Patching build.gradle (Groovy) ===" | tee -a /tmp/patch.log
+          find "$PUB_CACHE" -name "build.gradle" 2>/dev/null | while read GRADLE; do
             if grep -qE "compileSdk" "$GRADLE" 2>/dev/null; then
-              echo "Patching: $GRADLE"
+              echo "Patching: $GRADLE" | tee -a /tmp/patch.log
               sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' "$GRADLE"
               sed -i 's/\bcompileSdk [0-9][0-9]*/compileSdk 36/g' "$GRADLE"
-              grep -E "compileSdk" "$GRADLE" | head -2
+              grep -E "compileSdk" "$GRADLE" | head -2 | tee -a /tmp/patch.log
             fi
           done
 
-          echo ""
-          echo "=== Patching Kotlin build.gradle.kts nos plugins ==="
-          find /root/.pub-cache -name "build.gradle.kts" 2>/dev/null | while read GRADLE; do
+          echo "=== Patching build.gradle.kts (Kotlin) ===" | tee -a /tmp/patch.log
+          find "$PUB_CACHE" -name "build.gradle.kts" 2>/dev/null | while read GRADLE; do
             if grep -qE "compileSdk" "$GRADLE" 2>/dev/null; then
-              echo "Patching: $GRADLE"
+              echo "Patching: $GRADLE" | tee -a /tmp/patch.log
               sed -i 's/compileSdkVersion([0-9][0-9]*)/compileSdkVersion(36)/g' "$GRADLE"
               sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' "$GRADLE"
               sed -i 's/compileSdk([0-9][0-9]*)/compileSdk(36)/g' "$GRADLE"
-              grep -E "compileSdk" "$GRADLE" | head -2
+              grep -E "compileSdk" "$GRADLE" | head -2 | tee -a /tmp/patch.log
             fi
           done
 
-          echo ""
-          echo "=== Verificação file_picker ==="
-          find /root/.pub-cache -path "*/file_picker*" -name "build.gradle*" 2>/dev/null | while read f; do
-            echo "  $f:"
-            grep -E "compileSdk" "$f" | head -3
+          echo "=== file_picker gradle ===" | tee -a /tmp/patch.log
+          find "$PUB_CACHE" -path "*/file_picker*" -name "build.gradle*" 2>/dev/null | while read f; do
+            echo "$f:" | tee -a /tmp/patch.log
+            grep -E "compileSdk" "$f" | head -3 | tee -a /tmp/patch.log
           done
 
       - name: Aceitar licenças Android
@@ -114,8 +117,9 @@ jobs:
           APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
           if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then STATUS="SUCCESS"; ls -lh "$APK_DIR"/*.apk
           else STATUS="FAILED"; fi
-          LOG=$(tail -100 /tmp/build.log 2>/dev/null || echo "sem log")
-          CONTENT=$(printf "STATUS: %s\n\n%s" "$STATUS" "$LOG" | base64 -w 0)
+          PATCH_LOG=$(cat /tmp/patch.log 2>/dev/null || echo "sem patch log")
+          BUILD_LOG=$(tail -80 /tmp/build.log 2>/dev/null || echo "sem log")
+          CONTENT=$(printf "STATUS: %s\n\n=== PATCH LOG ===\n%s\n\n=== BUILD LOG ===\n%s" "$STATUS" "$PATCH_LOG" "$BUILD_LOG" | base64 -w 0)
           SHA_OLD=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
             2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
