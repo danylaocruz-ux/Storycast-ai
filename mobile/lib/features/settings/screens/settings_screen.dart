@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../data/services/api_service.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -94,6 +95,9 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const SizedBox(height: 16),
+          const _SectionHeader('Vozes e Idioma'),
+          _LanguageTile(),
+          const SizedBox(height: 16),
           const _SectionHeader('Sobre'),
           _SettingsTile(
             icon: Icons.info_outline,
@@ -101,8 +105,8 @@ class SettingsScreen extends ConsumerWidget {
             onTap: null,
           ),
           _SettingsTile(
-            icon: Icons.headphones,
-            label: 'ElevenLabs TTS + GPT-4o',
+            icon: Icons.translate,
+            label: 'edge-tts · PT-BR · EN · ES · FR',
             onTap: null,
             trailing: const SizedBox.shrink(),
           ),
@@ -186,6 +190,100 @@ class SettingsScreen extends ConsumerWidget {
       if (context.mounted) context.go('/login');
     }
   }
+}
+
+
+// ── Language preference tile ──────────────────────────────────────────────────
+
+class _LanguageTile extends StatefulWidget {
+  @override
+  State<_LanguageTile> createState() => _LanguageTileState();
+}
+
+class _LanguageTileState extends State<_LanguageTile> {
+  static const _key = 'preferred_voice_lang';
+  static const _options = [
+    {'code': 'all',   'label': 'Todos os idiomas', 'flag': '🌐'},
+    {'code': 'pt-BR', 'label': 'Português (Brasil)', 'flag': '🇧🇷'},
+    {'code': 'en',    'label': 'Inglês (EUA)', 'flag': '🇺🇸'},
+    {'code': 'es',    'label': 'Espanhol', 'flag': '🇪🇸'},
+    {'code': 'fr',    'label': 'Francês', 'flag': '🇫🇷'},
+  ];
+
+  String _current = 'pt-BR';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final val = await ApiService.instance.getPreference(_key);
+    if (val != null && mounted) setState(() => _current = val);
+  }
+
+  String get _currentLabel =>
+      _options.firstWhere((o) => o['code'] == _current,
+          orElse: () => _options[1])['label']!;
+
+  String get _currentFlag =>
+      _options.firstWhere((o) => o['code'] == _current,
+          orElse: () => _options[1])['flag']!;
+
+  Future<void> _pick() async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surfaceCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Idioma padrão das vozes',
+              style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          ..._options.map((o) => ListTile(
+            leading: Text(o['flag']!, style: const TextStyle(fontSize: 22)),
+            title: Text(o['label']!, style: const TextStyle(color: AppColors.textPrimary)),
+            trailing: o['code'] == _current
+                ? const Icon(Icons.check, color: AppColors.primary)
+                : null,
+            onTap: () => Navigator.pop(_, o['code']),
+          )),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+    if (picked != null) {
+      await ApiService.instance.savePreference(_key, picked);
+      if (mounted) setState(() => _current = picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    decoration: BoxDecoration(
+      color: AppColors.surfaceCard,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: AppColors.border),
+    ),
+    child: ListTile(
+      leading: Text(_currentFlag, style: const TextStyle(fontSize: 22)),
+      title: const Text('Idioma padrão das vozes',
+        style: TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+      subtitle: Text(_currentLabel,
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+      trailing: const Icon(Icons.chevron_right, color: AppColors.textHint),
+      onTap: _pick,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+  );
 }
 
 class _SectionHeader extends StatelessWidget {
