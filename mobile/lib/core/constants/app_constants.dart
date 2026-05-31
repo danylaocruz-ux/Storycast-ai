@@ -1,8 +1,8 @@
 class AppConstants {
   AppConstants._();
 
-  // Troque pelo IP da máquina onde o backend roda (ou use 10.0.2.2 para emulador Android)
-  static const baseUrl = 'http://10.0.2.2:8000/api/v1';
+  // URL de produção (Render) — troque se o nome do serviço mudar
+  static const baseUrl = 'https://storycast-ai-api.onrender.com/api/v1';
 
   // Tokens
   static const tokenKey = 'auth_token';
