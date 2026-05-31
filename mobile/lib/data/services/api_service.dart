@@ -126,16 +126,6 @@ class ApiService {
     return resp.data as Map<String, dynamic>;
   }
 
-
-  Future<Map<String, dynamic>> updateCharacterVoice(
-      int bookId, int charId, String voiceId, String voiceName) async {
-    final resp = await _dio.put('/books/\$bookId/characters/\$charId', data: {
-      'voice_id': voiceId,
-      'voice_name': voiceName,
-    });
-    return resp.data as Map<String, dynamic>;
-  }
-
   Future<List<dynamic>> getAvailableVoices() async {
     final resp = await _dio.get('/voices/available');
     return resp.data as List<dynamic>;
@@ -185,4 +175,15 @@ class ApiService {
   }
 
   Future<void> deleteBookmark(int id) => _dio.delete('/bookmarks/$id');
+  Future<void> regenerateAudio(int bookId) async {
+    await _dio.post('/books/\$bookId/regenerate-audio');
+  }
+
+  // ── Preferências locais (via secure storage) ─────────────────────────────
+
+  Future<void> savePreference(String key, String value) =>
+      _storage.write(key: 'pref_\$key', value: value);
+
+  Future<String?> getPreference(String key) =>
+      _storage.read(key: 'pref_\$key');
 }
