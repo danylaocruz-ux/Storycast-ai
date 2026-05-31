@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../data/models/book_model.dart';
 import '../../../data/services/api_service.dart';
 import '../../library/providers/library_provider.dart';
+import '../../characters/screens/voice_config_screen.dart';
 import '../providers/player_provider.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -72,8 +73,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       ),
                     ),
                     IconButton(
+                      icon: const Icon(Icons.mic_outlined, color: AppColors.primary),
+                      tooltip: 'Configurar vozes',
+                      onPressed: () => context.push('/voices/\${widget.bookId}'),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.group_outlined, color: AppColors.textSecondary),
-                      onPressed: () => context.go('/characters/${widget.bookId}'),
+                      onPressed: () => context.go('/characters/\${widget.bookId}'),
                     ),
                   ],
                 ),
