@@ -18,7 +18,6 @@ class AppTheme {
           onSurface: AppColors.textPrimary,
         ),
         scaffoldBackgroundColor: AppColors.background,
-        fontFamily: 'Inter',
 
         // AppBar
         appBarTheme: const AppBarTheme(
@@ -31,7 +30,6 @@ class AppTheme {
             statusBarIconBrightness: Brightness.light,
           ),
           titleTextStyle: TextStyle(
-            fontFamily: 'Inter',
             fontSize: 18,
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary,
@@ -81,7 +79,6 @@ class AppTheme {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 0,
             textStyle: const TextStyle(
-              fontFamily: 'Inter',
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
@@ -106,14 +103,12 @@ class AppTheme {
           labelTextStyle: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
               return const TextStyle(
-                fontFamily: 'Inter',
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: AppColors.primary,
               );
             }
             return const TextStyle(
-              fontFamily: 'Inter',
               fontSize: 12,
               color: AppColors.textSecondary,
             );
@@ -130,7 +125,7 @@ class AppTheme {
         // Snackbar
         snackBarTheme: SnackBarThemeData(
           backgroundColor: AppColors.surfaceVariant,
-          contentTextStyle: const TextStyle(color: AppColors.textPrimary, fontFamily: 'Inter'),
+          contentTextStyle: const TextStyle(color: AppColors.textPrimary),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           behavior: SnackBarBehavior.floating,
         ),
