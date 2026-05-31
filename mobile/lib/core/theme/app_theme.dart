@@ -19,7 +19,6 @@ class AppTheme {
         ),
         scaffoldBackgroundColor: AppColors.background,
 
-        // AppBar
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.background,
           foregroundColor: AppColors.textPrimary,
@@ -36,7 +35,6 @@ class AppTheme {
           ),
         ),
 
-        // Cards
         cardTheme: CardThemeData(
           color: AppColors.surfaceCard,
           elevation: 0,
@@ -46,7 +44,6 @@ class AppTheme {
           ),
         ),
 
-        // Inputs
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: AppColors.surfaceVariant,
@@ -70,7 +67,6 @@ class AppTheme {
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
 
-        // Botões elevados
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,
@@ -85,12 +81,10 @@ class AppTheme {
           ),
         ),
 
-        // Botões texto
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(foregroundColor: AppColors.primary),
         ),
 
-        // Bottom navigation
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: AppColors.surface,
           indicatorColor: AppColors.primary.withOpacity(0.2),
@@ -115,18 +109,17 @@ class AppTheme {
           }),
         ),
 
-        // Divider
         dividerTheme: const DividerThemeData(
           color: AppColors.border,
           thickness: 1,
           space: 1,
         ),
 
-        // Snackbar
         snackBarTheme: SnackBarThemeData(
           backgroundColor: AppColors.surfaceVariant,
           contentTextStyle: const TextStyle(color: AppColors.textPrimary),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           behavior: SnackBarBehavior.floating,
         ),
-      )
+      );
+}
