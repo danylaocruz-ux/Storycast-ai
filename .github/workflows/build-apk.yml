@@ -25,34 +25,29 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Criar template Flutter e preparar Android
+      - name: Montar projeto no diretorio limpo do Flutter
         run: |
-          set -euo pipefail
-
-          echo ">>> 1. flutter create"
+          # Cria projeto Flutter completo (com todos os arquivos Android)
           flutter create \
             --project-name storycast_ai \
             --org com.storycastai \
             --platforms android \
-            /tmp/flutter_template
-          echo "Template OK. Conteudo android:"
-          ls /tmp/flutter_template/android/
+            /tmp/storycast_build
 
-          echo ">>> 2. Backup manifest"
-          cp mobile/android/app/src/main/AndroidManifest.xml /tmp/manifest_custom.xml
-          echo "Backup OK"
+          # Substitui lib/ pelo nosso codigo
+          rm -rf /tmp/storycast_build/lib
+          cp -r mobile/lib /tmp/storycast_build/lib
 
-          echo ">>> 3. rsync boilerplate"
-          rsync -a /tmp/flutter_template/android/ mobile/android/
-          echo "rsync OK"
+          # Substitui pubspec.yaml pelo nosso
+          cp mobile/pubspec.yaml /tmp/storycast_build/pubspec.yaml
 
-          echo ">>> 4. Restaurar manifest"
-          cp /tmp/manifest_custom.xml mobile/android/app/src/main/AndroidManifest.xml
-          echo "Manifest restaurado"
+          # Substitui AndroidManifest pelo nosso (com permissoes corretas)
+          cp mobile/android/app/src/main/AndroidManifest.xml \
+            /tmp/storycast_build/android/app/src/main/AndroidManifest.xml
 
-          echo ">>> 5. Criar file_paths.xml"
-          mkdir -p mobile/android/app/src/main/res/xml
-          cat > mobile/android/app/src/main/res/xml/file_paths.xml << 'XML'
+          # Cria file_paths.xml necessario para FileProvider
+          mkdir -p /tmp/storycast_build/android/app/src/main/res/xml
+          cat > /tmp/storycast_build/android/app/src/main/res/xml/file_paths.xml << 'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <paths>
             <external-path name="external_files" path="."/>
@@ -60,34 +55,32 @@ jobs:
             <cache-path name="cache" path="."/>
           </paths>
           XML
-          echo "file_paths.xml criado"
 
-          echo ">>> 6. Ajustar minSdk=21"
+          # Garante minSdk 21
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' \
-            mobile/android/app/build.gradle 2>/dev/null || true
+            /tmp/storycast_build/android/app/build.gradle 2>/dev/null || true
           sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' \
-            mobile/android/app/build.gradle 2>/dev/null || true
-          echo "build.gradle:"
-          cat mobile/android/app/build.gradle
+            /tmp/storycast_build/android/app/build.gradle 2>/dev/null || true
 
-          echo ">>> 7. Criar dirs assets"
-          mkdir -p mobile/assets/images mobile/assets/icons \
-                   mobile/assets/animations mobile/assets/fonts
-          echo "Todos os passos concluidos com sucesso"
+          echo "Projeto montado em /tmp/storycast_build"
+          echo "Lib files:"
+          find /tmp/storycast_build/lib -name "*.dart" | wc -l
+          echo "pubspec.yaml deps:"
+          grep "flutter_riverpod\|go_router\|dio\|just_audio" /tmp/storycast_build/pubspec.yaml
 
       - name: Instalar dependencias
-        working-directory: mobile
+        working-directory: /tmp/storycast_build
         run: flutter pub get
 
       - name: Aceitar licencas Android
         run: yes | sdkmanager --licenses || true
 
       - name: Build APK
-        working-directory: mobile
+        working-directory: /tmp/storycast_build
         run: |
           flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
           EXIT=${PIPESTATUS[0]}
-          [ $EXIT -ne 0 ] && echo "=== ERRO ===" && tail -100 /tmp/build.log
+          [ $EXIT -ne 0 ] && echo "=== ERRO BUILD ===" && tail -100 /tmp/build.log
           exit $EXIT
 
       - name: Upload log se falhou
@@ -103,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK
-          path: mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          path: /tmp/storycast_build/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           retention-days: 30
 
       - name: Upload todos os APKs
@@ -111,5 +104,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK-todos
-          path: mobile/build/app/outputs/flutter-apk/*.apk
+          path: /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
