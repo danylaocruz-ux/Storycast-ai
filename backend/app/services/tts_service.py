@@ -12,20 +12,48 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Ajustes de voz por emoção (rate e pitch do edge-tts)
+# Ajustes sutis de voz por emoção — valores pequenos soam mais naturais
+# Ajustes grandes deixam a voz robótica/artificial
 EMOTION_SETTINGS: dict[str, dict] = {
     "neutral":     {"rate": "+0%",  "pitch": "+0Hz",  "speed": 1.0},
-    "happy":       {"rate": "+10%", "pitch": "+5Hz",  "speed": 1.1},
-    "sad":         {"rate": "-10%", "pitch": "-5Hz",  "speed": 0.9},
-    "angry":       {"rate": "+15%", "pitch": "+3Hz",  "speed": 1.15},
-    "fearful":     {"rate": "+5%",  "pitch": "+2Hz",  "speed": 1.05},
-    "surprised":   {"rate": "+10%", "pitch": "+8Hz",  "speed": 1.1},
-    "romantic":    {"rate": "-5%",  "pitch": "-2Hz",  "speed": 0.95},
-    "suspenseful": {"rate": "-5%",  "pitch": "+1Hz",  "speed": 0.98},
+    "happy":       {"rate": "+5%",  "pitch": "+2Hz",  "speed": 1.05},
+    "sad":         {"rate": "-8%",  "pitch": "-3Hz",  "speed": 0.95},
+    "angry":       {"rate": "+8%",  "pitch": "+2Hz",  "speed": 1.05},
+    "fearful":     {"rate": "+3%",  "pitch": "+1Hz",  "speed": 1.02},
+    "surprised":   {"rate": "+5%",  "pitch": "+3Hz",  "speed": 1.03},
+    "romantic":    {"rate": "-5%",  "pitch": "-1Hz",  "speed": 0.97},
+    "suspenseful": {"rate": "-3%",  "pitch": "+0Hz",  "speed": 0.98},
 }
 
 # Voz de fallback caso a voz especificada não exista
 FALLBACK_VOICE = "pt-BR-FranciscaNeural"
+
+
+def _prepare_text(text: str) -> str:
+    """
+    Limpa e prepara o texto para TTS.
+    Remove múltiplos espaços/quebras que causam pausas artificiais.
+    Normaliza travessões de diálogo para leitura fluida.
+    """
+    import re
+
+    # Normaliza travessões de diálogo: — texto → texto (remove o travessão inicial)
+    # O TTS lê melhor sem o travessão, que causa uma pausa artificial
+    text = re.sub(r'^—\s*', '', text.strip())
+    text = re.sub(r'\n—\s*', '\n', text)
+
+    # Remove múltiplas quebras de linha (causam silêncios)
+    text = re.sub(r'\n{2,}', ' ', text)
+    text = re.sub(r'\n', ' ', text)
+
+    # Remove espaços múltiplos
+    text = re.sub(r' {2,}', ' ', text)
+
+    # Remove travessões no meio do texto que causam pausas (— disse X)
+    # Mantém o conteúdo mas remove o travessão
+    text = re.sub(r'\s*—\s*', ' — ', text)
+
+    return text.strip()
 
 
 async def _generate_async(text: str, voice: str, rate: str, pitch: str, output_path: str) -> None:
@@ -62,10 +90,15 @@ def generate_audio(
     filename = f"{uuid.uuid4().hex}.mp3"
     dest = str(dest_dir / filename)
 
+    # Prepara o texto para evitar pausas artificiais
+    clean_text = _prepare_text(text)
+    if not clean_text:
+        clean_text = text.strip()
+
     try:
         _run_coroutine(
             _generate_async(
-                text=text,
+                text=clean_text,
                 voice=voice_id or FALLBACK_VOICE,
                 rate=params["rate"],
                 pitch=params["pitch"],
@@ -81,7 +114,7 @@ def generate_audio(
         try:
             _run_coroutine(
                 _generate_async(
-                    text=text,
+                    text=clean_text,
                     voice=FALLBACK_VOICE,
                     rate="+0%",
                     pitch="+0Hz",
