@@ -3,7 +3,7 @@ name: Build StoryCast AI APK
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:   # permite rodar manualmente pelo botão no GitHub
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,8 +22,13 @@ jobs:
       - name: Configurar Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
           channel: 'stable'
+          cache: true
+
+      - name: Criar pastas de assets necessárias
+        working-directory: mobile
+        run: |
+          mkdir -p assets/images assets/icons assets/animations assets/fonts
 
       - name: Instalar dependências
         working-directory: mobile
@@ -49,3 +54,4 @@ jobs:
           name: StoryCast-AI-APK-todos
           path: mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
+
