@@ -1,31 +1,26 @@
 """
 Sistema de Atribuição de Vozes.
-Mapeia personagens para voice_ids do ElevenLabs.
-Garante persistência e não repetição de vozes.
+Mapeia personagens para vozes do edge-tts (Microsoft, gratuito).
 """
 import logging
-from elevenlabs import ElevenLabs
-from ..config import settings
+from ..services.tts_service import list_available_voices
 
 logger = logging.getLogger(__name__)
 
-# ── Vozes padrão por perfil (voice_id do ElevenLabs) ─────────────────────────
-# Estes são IDs públicos/pré-construídos do ElevenLabs.
-# Atualize com os IDs reais da sua conta se necessário.
+# Vozes edge-tts por perfil (ShortName do Microsoft TTS)
 DEFAULT_VOICES = {
-    "narrator_neutral": {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Sarah"},      # Voz calma e clara
-    "male_adult":       {"id": "TxGEqnHWrfWFTfGW9XjX", "name": "Josh"},        # Adulto masculino
-    "male_elderly":     {"id": "VR6AewLTigWG4xSOukaG", "name": "Arnold"},      # Voz madura masculina
-    "male_teen":        {"id": "pNInz6obpgDQGcFmaJgB", "name": "Adam"},        # Tom mais jovem
-    "female_adult":     {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel"},      # Adulta feminina
-    "female_elderly":   {"id": "D38z5RcWu1voky8WS1ja", "name": "Dorothy"},     # Voz madura feminina
-    "female_teen":      {"id": "ThT5KcBeYPX3keUQqHPh", "name": "Nicole"},      # Adolescente feminina
-    "child":            {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi"},        # Voz infantil
-    "villain":          {"id": "yoZ06aMxZJJ28mfd3POQ", "name": "Sam"},         # Voz mais intensa
+    "narrator_neutral": {"id": "pt-BR-FranciscaNeural",   "name": "Francisca (PT-BR)"},
+    "male_adult":       {"id": "pt-BR-AntonioNeural",      "name": "Antonio (PT-BR)"},
+    "male_elderly":     {"id": "en-US-ChristopherNeural",  "name": "Christopher"},
+    "male_teen":        {"id": "en-US-EricNeural",         "name": "Eric"},
+    "female_adult":     {"id": "en-US-JennyNeural",        "name": "Jenny"},
+    "female_elderly":   {"id": "en-US-MonicaNeural",       "name": "Monica"},
+    "female_teen":      {"id": "en-US-AriaNeural",         "name": "Aria"},
+    "child":            {"id": "en-US-AnaNeural",          "name": "Ana"},
+    "villain":          {"id": "en-US-DavisNeural",        "name": "Davis"},
 }
 
-# Fallback quando acabar vozes distintas
-FALLBACK_VOICE = {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Sarah"}
+FALLBACK_VOICE = {"id": "pt-BR-FranciscaNeural", "name": "Francisca (PT-BR)"}
 
 
 def assign_voice(
@@ -47,19 +42,17 @@ def assign_voice(
             return voice
 
     # Todas as candidatas já usadas → pega qualquer não usada
-    all_voices = list(DEFAULT_VOICES.values())
-    for voice in all_voices:
+    for voice in DEFAULT_VOICES.values():
         if voice["id"] not in used_voice_ids:
             return voice
 
-    # Último recurso: repete a voz mais adequada
+    # Último recurso
     return candidates[0] if candidates else FALLBACK_VOICE
 
 
 def _get_candidates(
     gender: str, age_group: str, personality: str, is_narrator: bool
 ) -> list[dict]:
-    """Retorna lista de vozes candidatas ordenadas por prioridade."""
     if is_narrator:
         return [
             DEFAULT_VOICES["narrator_neutral"],
@@ -74,7 +67,7 @@ def _get_candidates(
         ]
 
     if age_group == "child":
-        return [DEFAULT_VOICES["child"]]
+        return [DEFAULT_VOICES["child"], DEFAULT_VOICES["female_teen"]]
 
     if age_group == "elderly":
         return [
@@ -95,21 +88,13 @@ def _get_candidates(
     if gender == "male":
         return [DEFAULT_VOICES["male_adult"], DEFAULT_VOICES["villain"]]
 
-    # Neutro
     return [DEFAULT_VOICES["narrator_neutral"], DEFAULT_VOICES["male_adult"]]
 
 
-def list_available_voices() -> list[dict]:
-    """Lista vozes disponíveis na conta ElevenLabs."""
-    if not settings.ELEVENLABS_API_KEY:
-        return list(DEFAULT_VOICES.values())
+def list_available_voices_api() -> list[dict]:
+    """Lista vozes disponíveis no edge-tts."""
     try:
-        el = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
-        voices_resp = el.voices.get_all()
-        return [
-            {"id": v.voice_id, "name": v.name, "labels": v.labels or {}}
-            for v in voices_resp.voices
-        ]
+        return list_available_voices()
     except Exception as e:
-        logger.error(f"Erro ao listar vozes ElevenLabs: {e}")
+        logger.error(f"Erro ao listar vozes: {e}")
         return list(DEFAULT_VOICES.values())
