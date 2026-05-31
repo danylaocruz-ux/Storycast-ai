@@ -11,6 +11,7 @@ import '../../features/processing/screens/processing_screen.dart';
 import '../../features/characters/screens/characters_screen.dart';
 import '../../features/player/screens/player_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
+import '../../features/characters/screens/voice_config_screen.dart';
 import '../../shared/widgets/main_scaffold.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -52,6 +53,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/characters/:bookId',
         builder: (_, state) => CharactersScreen(
+          bookId: int.parse(state.pathParameters['bookId']!),
+        ),
+      ),
+      GoRoute(
+        path: '/voices/:bookId',
+        builder: (_, state) => VoiceConfigScreen(
           bookId: int.parse(state.pathParameters['bookId']!),
         ),
       ),
