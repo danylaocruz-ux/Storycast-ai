@@ -52,24 +52,35 @@ jobs:
           printf '<?xml version="1.0" encoding="utf-8"?>\n<paths>\n  <external-path name="external_files" path="."/>\n  <cache-path name="cache_files" path="."/>\n</paths>\n' \
             > /tmp/storycast_build/android/app/src/main/res/xml/file_paths.xml
 
-      - name: Ajustar compileSdk e minSdk
+      - name: Ajustar compileSdk e minSdk do app
         run: |
           for f in /tmp/storycast_build/android/app/build.gradle /tmp/storycast_build/android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              echo "=== Patching $f ==="
-              # compileSdk
               sed -i 's/compileSdk = flutter\.compileSdkVersion/compileSdk = 36/g' "$f" || true
               sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/g' "$f" || true
-              sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/g' "$f" || true
-              # minSdk
               sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' "$f" || true
               sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 21/g' "$f" || true
               sed -i 's/minSdk flutter\.minSdkVersion/minSdk 21/g' "$f" || true
-              sed -i 's/minSdk(flutter\.minSdkVersion)/minSdk(21)/g' "$f" || true
-              echo "--- Result ---"
-              grep -E "compileSdk|minSdk|targetSdk" "$f" || true
+              grep -E "compileSdk|minSdk" "$f" || true
             fi
           done
+
+      - name: Forçar compileSdk 36 em todos os plugins (subprojetos)
+        run: |
+          ROOT_KTS=/tmp/storycast_build/android/build.gradle.kts
+          ROOT_GRV=/tmp/storycast_build/android/build.gradle
+
+          if [ -f "$ROOT_KTS" ]; then
+            echo "Adicionando override Kotlin DSL em $ROOT_KTS"
+            printf '\nsubprojects {\n    afterEvaluate {\n        if (plugins.hasPlugin("com.android.library")) {\n            extensions.configure<com.android.build.gradle.LibraryExtension> {\n                compileSdk = 36\n            }\n        }\n    }\n}\n' >> "$ROOT_KTS"
+            echo "=== Tail root build.gradle.kts ==="
+            tail -12 "$ROOT_KTS"
+          elif [ -f "$ROOT_GRV" ]; then
+            echo "Adicionando override Groovy em $ROOT_GRV"
+            printf "\nsubprojects {\n    afterEvaluate { p ->\n        if (p.plugins.hasPlugin('com.android.library')) {\n            p.android.compileSdkVersion 36\n        }\n    }\n}\n" >> "$ROOT_GRV"
+            echo "=== Tail root build.gradle ==="
+            tail -12 "$ROOT_GRV"
+          fi
 
       - name: Instalar dependências
         working-directory: /tmp/storycast_build
