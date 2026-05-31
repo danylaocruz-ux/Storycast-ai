@@ -250,4 +250,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 }
 
-final playerProvider = StateNotifierProvi
+final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>(
+  (ref) => PlayerNotifier(),
+);
