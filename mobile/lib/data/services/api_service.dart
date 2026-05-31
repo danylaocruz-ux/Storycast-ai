@@ -169,4 +169,10 @@ class ApiService {
       'book_id': bookId,
       'segment_index': segmentIndex,
       'position': position,
-    
+      'label': label,
+    });
+    return resp.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteBookmark(int id) => _dio.delete('/bookmarks/$id');
+}
