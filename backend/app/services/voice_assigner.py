@@ -3,24 +3,53 @@ Sistema de Atribuição de Vozes.
 Mapeia personagens para vozes do edge-tts (Microsoft, gratuito).
 """
 import logging
-from ..services.tts_service import list_available_voices
 
 logger = logging.getLogger(__name__)
 
-# Vozes edge-tts por perfil (ShortName do Microsoft TTS)
+# ── Vozes curadas para audiobooks ─────────────────────────────────────────────
+# Lista estática para resposta rápida (sem chamar a API do edge-tts)
+CURATED_VOICES = [
+    # PT-BR
+    {"id": "pt-BR-FranciscaNeural",  "name": "Francisca",  "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-AntonioNeural",    "name": "Antonio",    "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-ThalitaNeural",    "name": "Thalita",    "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-DonatoNeural",     "name": "Donato",     "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-ElzaNeural",       "name": "Elza",       "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-FabioNeural",      "name": "Fabio",      "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-GiovannaNeural",   "name": "Giovanna",   "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-HumbertoNeural",   "name": "Humberto",   "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-JulioNeural",      "name": "Julio",      "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-LeilaNeural",      "name": "Leila",      "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-NicolauNeural",    "name": "Nicolau",    "locale": "pt-BR", "gender": "male"},
+    {"id": "pt-BR-ValeriaNeural",    "name": "Valeria",    "locale": "pt-BR", "gender": "female"},
+    {"id": "pt-BR-YaraNeural",       "name": "Yara",       "locale": "pt-BR", "gender": "female"},
+    # EN-US
+    {"id": "en-US-DavisNeural",      "name": "Davis",      "locale": "en-US", "gender": "male"},
+    {"id": "en-US-JennyNeural",      "name": "Jenny",      "locale": "en-US", "gender": "female"},
+    {"id": "en-US-AriaNeural",       "name": "Aria",       "locale": "en-US", "gender": "female"},
+    {"id": "en-US-EricNeural",       "name": "Eric",       "locale": "en-US", "gender": "male"},
+    {"id": "en-US-ChristopherNeural","name": "Christopher","locale": "en-US", "gender": "male"},
+    {"id": "en-US-AnaNeural",        "name": "Ana",        "locale": "en-US", "gender": "female"},
+    {"id": "en-US-MonicaNeural",     "name": "Monica",     "locale": "en-US", "gender": "female"},
+]
+
+# Índice rápido id → voice
+_VOICE_INDEX = {v["id"]: v for v in CURATED_VOICES}
+
+# Mapeamento perfil → voz padrão (fallback)
 DEFAULT_VOICES = {
-    "narrator_neutral": {"id": "pt-BR-FranciscaNeural",   "name": "Francisca (PT-BR)"},
-    "male_adult":       {"id": "pt-BR-AntonioNeural",      "name": "Antonio (PT-BR)"},
+    "narrator_neutral": {"id": "pt-BR-FranciscaNeural",   "name": "Francisca"},
+    "male_adult":       {"id": "pt-BR-AntonioNeural",      "name": "Antonio"},
     "male_elderly":     {"id": "en-US-ChristopherNeural",  "name": "Christopher"},
     "male_teen":        {"id": "en-US-EricNeural",         "name": "Eric"},
-    "female_adult":     {"id": "en-US-JennyNeural",        "name": "Jenny"},
+    "female_adult":     {"id": "pt-BR-ThalitaNeural",      "name": "Thalita"},
     "female_elderly":   {"id": "en-US-MonicaNeural",       "name": "Monica"},
     "female_teen":      {"id": "en-US-AriaNeural",         "name": "Aria"},
     "child":            {"id": "en-US-AnaNeural",          "name": "Ana"},
     "villain":          {"id": "en-US-DavisNeural",        "name": "Davis"},
 }
 
-FALLBACK_VOICE = {"id": "pt-BR-FranciscaNeural", "name": "Francisca (PT-BR)"}
+FALLBACK_VOICE = {"id": "pt-BR-FranciscaNeural", "name": "Francisca"}
 
 
 def assign_voice(
@@ -41,9 +70,9 @@ def assign_voice(
         if voice["id"] not in used_voice_ids:
             return voice
 
-    # Todas as candidatas já usadas → pega qualquer não usada
-    for voice in DEFAULT_VOICES.values():
-        if voice["id"] not in used_voice_ids:
+    # Todas as candidatas já usadas → pega qualquer PT-BR não usada
+    for voice in CURATED_VOICES:
+        if voice["locale"] == "pt-BR" and voice["id"] not in used_voice_ids:
             return voice
 
     # Último recurso
@@ -91,10 +120,6 @@ def _get_candidates(
     return [DEFAULT_VOICES["narrator_neutral"], DEFAULT_VOICES["male_adult"]]
 
 
-def list_available_voices_api() -> list[dict]:
-    """Lista vozes disponíveis no edge-tts."""
-    try:
-        return list_available_voices()
-    except Exception as e:
-        logger.error(f"Erro ao listar vozes: {e}")
-        return list(DEFAULT_VOICES.values())
+def list_available_voices() -> list[dict]:
+    """Retorna a lista curada de vozes disponíveis para audiobook."""
+    return CURATED_VOICES
