@@ -49,6 +49,6 @@ Execution failed for task ':file_picker:checkReleaseAarMetadata'.
 > Run with --scan to generate a Build Scan (Powered by Develocity).
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 3m 46s
-Running Gradle task 'assembleRelease'...                          226.7s
+BUILD FAILED in 4m
+Running Gradle task 'assembleRelease'...                          241.3s
 Gradle task assembleRelease failed with exit code 1
