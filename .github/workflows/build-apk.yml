@@ -27,47 +27,30 @@ jobs:
 
       - name: Preparar boilerplate Android completo
         run: |
-          # Cria projeto Flutter completo em /tmp para obter boilerplate Android
           flutter create \
             --project-name storycast_ai \
             --org com.storycastai \
             --platforms android \
             /tmp/flutter_template
 
-          # Backup do nosso AndroidManifest personalizado
           cp mobile/android/app/src/main/AndroidManifest.xml /tmp/manifest_custom.xml
-
-          # Copia TODO o boilerplate Android (build.gradle, Gradle wrapper, res/, etc.)
           cp -r /tmp/flutter_template/android/. mobile/android/
-
-          # Restaura nosso AndroidManifest personalizado (tem permissoes corretas)
           cp /tmp/manifest_custom.xml mobile/android/app/src/main/AndroidManifest.xml
 
-          # Cria file_paths.xml necessario para FileProvider no Android 7+
           mkdir -p mobile/android/app/src/main/res/xml
-          cat > mobile/android/app/src/main/res/xml/file_paths.xml << 'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths xmlns:android="http://schemas.android.com/apk/res/android">
-            <external-path name="external_files" path="."/>
-            <files-path name="files" path="."/>
-            <cache-path name="cache" path="."/>
-            <external-cache-path name="external_cache" path="."/>
-            <external-files-path name="external_files_path" path="."/>
-          </paths>
-          XML
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<paths xmlns:android="http://schemas.android.com/apk/res/android">\n  <external-path name="external_files" path="."/>\n  <files-path name="files" path="."/>\n  <cache-path name="cache" path="."/>\n</paths>\n' \
+            > mobile/android/app/src/main/res/xml/file_paths.xml
 
-          # Garante minSdkVersion 21 no build.gradle
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' \
-            mobile/android/app/build.gradle || true
+            mobile/android/app/build.gradle 2>/dev/null || true
           sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' \
-            mobile/android/app/build.gradle || true
+            mobile/android/app/build.gradle 2>/dev/null || true
 
-          # Cria pastas de assets declaradas no pubspec.yaml
           mkdir -p mobile/assets/images mobile/assets/icons \
                    mobile/assets/animations mobile/assets/fonts
 
-          echo "=== build.gradle compileSdk ==="
-          grep -E "minSdk|compileSdk|targetSdk" mobile/android/app/build.gradle || true
+          echo "=== build.gradle ==="
+          cat mobile/android/app/build.gradle
 
       - name: Instalar dependencias
         working-directory: mobile
@@ -76,11 +59,28 @@ jobs:
       - name: Aceitar licencas Android
         run: yes | sdkmanager --licenses || true
 
-      - name: Build APK
+      - name: Build APK (com log completo)
         working-directory: mobile
-        run: flutter build apk --split-per-abi --release
+        run: |
+          flutter build apk --split-per-abi --release --verbose \
+            2>&1 | tee /tmp/flutter_build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== ULTIMAS 100 LINHAS DO LOG ==="
+            tail -100 /tmp/flutter_build.log
+            exit $BUILD_EXIT
+          fi
+
+      - name: Upload log de erro
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-build-log
+          path: /tmp/flutter_build.log
+          retention-days: 7
 
       - name: Upload APK arm64
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK
@@ -88,6 +88,7 @@ jobs:
           retention-days: 30
 
       - name: Upload todos os APKs
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK-todos
