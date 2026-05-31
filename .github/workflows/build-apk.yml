@@ -1,0 +1,51 @@
+name: Build StoryCast AI APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:   # permite rodar manualmente pelo botão no GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.6'
+          channel: 'stable'
+
+      - name: Instalar dependências
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Aceitar licenças Android
+        run: yes | sdkmanager --licenses || true
+
+      - name: Build APK
+        working-directory: mobile
+        run: flutter build apk --split-per-abi --release
+
+      - name: Upload APK (arm64 — celulares modernos)
+        uses: actions/upload-artifact@v4
+        with:
+          name: StoryCast-AI-APK
+          path: mobile/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          retention-days: 30
+
+      - name: Upload todos os APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: StoryCast-AI-APK-todos
+          path: mobile/build/app/outputs/flutter-apk/*.apk
+          retention-days: 30
