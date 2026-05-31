@@ -1,27 +1,50 @@
 """
-Serviço de Text-to-Speech.
-Usa ElevenLabs para gerar áudio com múltiplas vozes.
-Adaptação emocional via stability/similarity_boost.
+Serviço de Text-to-Speech usando edge-tts (Microsoft Edge, gratuito).
+Sem necessidade de API key — funciona offline via protocolo WebSocket.
 """
+import asyncio
+import concurrent.futures
 import uuid
 import logging
 from pathlib import Path
-from elevenlabs import ElevenLabs, VoiceSettings
+import edge_tts
 from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# ── Mapeamento emoção → parâmetros de voz ────────────────────────────────────
+# Ajustes de voz por emoção (rate e pitch do edge-tts)
 EMOTION_SETTINGS: dict[str, dict] = {
-    "neutral":     {"stability": 0.75, "similarity_boost": 0.75, "style": 0.0,  "speed": 1.0},
-    "happy":       {"stability": 0.50, "similarity_boost": 0.80, "style": 0.3,  "speed": 1.1},
-    "sad":         {"stability": 0.85, "similarity_boost": 0.70, "style": 0.1,  "speed": 0.9},
-    "angry":       {"stability": 0.40, "similarity_boost": 0.85, "style": 0.6,  "speed": 1.15},
-    "fearful":     {"stability": 0.55, "similarity_boost": 0.75, "style": 0.4,  "speed": 1.05},
-    "surprised":   {"stability": 0.45, "similarity_boost": 0.80, "style": 0.5,  "speed": 1.1},
-    "romantic":    {"stability": 0.80, "similarity_boost": 0.70, "style": 0.2,  "speed": 0.95},
-    "suspenseful": {"stability": 0.65, "similarity_boost": 0.75, "style": 0.35, "speed": 0.98},
+    "neutral":     {"rate": "+0%",  "pitch": "+0Hz",  "speed": 1.0},
+    "happy":       {"rate": "+10%", "pitch": "+5Hz",  "speed": 1.1},
+    "sad":         {"rate": "-10%", "pitch": "-5Hz",  "speed": 0.9},
+    "angry":       {"rate": "+15%", "pitch": "+3Hz",  "speed": 1.15},
+    "fearful":     {"rate": "+5%",  "pitch": "+2Hz",  "speed": 1.05},
+    "surprised":   {"rate": "+10%", "pitch": "+8Hz",  "speed": 1.1},
+    "romantic":    {"rate": "-5%",  "pitch": "-2Hz",  "speed": 0.95},
+    "suspenseful": {"rate": "-5%",  "pitch": "+1Hz",  "speed": 0.98},
 }
+
+# Voz de fallback caso a voz especificada não exista
+FALLBACK_VOICE = "pt-BR-FranciscaNeural"
+
+
+async def _generate_async(text: str, voice: str, rate: str, pitch: str, output_path: str) -> None:
+    """Coroutine que gera o áudio via edge-tts."""
+    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+    await communicate.save(output_path)
+
+
+def _run_coroutine(coro):
+    """Executa uma coroutine de forma segura em qualquer contexto (sync ou async)."""
+    try:
+        loop = asyncio.get_running_loop()
+        # Estamos dentro de um loop — executa em thread separada
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    except RuntimeError:
+        # Nenhum loop rodando — executa diretamente
+        return asyncio.run(coro)
 
 
 def generate_audio(
@@ -31,47 +54,59 @@ def generate_audio(
     output_dir: Path | None = None,
 ) -> tuple[str, float]:
     """
-    Gera áudio para o texto com a voz e emoção especificadas.
-    Retorna (caminho_do_arquivo, duracao_estimada_segundos).
+    Gera áudio MP3 para o texto usando edge-tts.
+    Retorna (caminho_do_arquivo, duração_estimada_segundos).
     """
-    if not settings.ELEVENLABS_API_KEY:
-        raise RuntimeError("ELEVENLABS_API_KEY não configurada")
-
     params = EMOTION_SETTINGS.get(emotion, EMOTION_SETTINGS["neutral"])
     dest_dir = output_dir or settings.audio_path
     filename = f"{uuid.uuid4().hex}.mp3"
-    dest = dest_dir / filename
-
-    el = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+    dest = str(dest_dir / filename)
 
     try:
-        audio_bytes = el.text_to_speech.convert(
-            text=text,
-            voice_id=voice_id,
-            model_id="eleven_multilingual_v2",
-            voice_settings=VoiceSettings(
-                stability=params["stability"],
-                similarity_boost=params["similarity_boost"],
-                style=params["style"],
-                use_speaker_boost=True,
-            ),
+        _run_coroutine(
+            _generate_async(
+                text=text,
+                voice=voice_id or FALLBACK_VOICE,
+                rate=params["rate"],
+                pitch=params["pitch"],
+                output_path=dest,
+            )
         )
-        # Coleta o gerador em bytes
-        audio_data = b"".join(audio_bytes) if hasattr(audio_bytes, "__iter__") else audio_bytes
-        dest.write_bytes(audio_data)
-
-        # Estimativa de duração: ~150 palavras/minuto para audio médio
         words = len(text.split())
         duration = (words / 150) * 60 * (1 / params["speed"])
-
-        return str(dest), round(duration, 2)
+        return dest, round(duration, 2)
 
     except Exception as e:
-        logger.error(f"Erro TTS (voice={voice_id}, emotion={emotion}): {e}")
-        raise
+        logger.warning(f"Erro edge-tts (voice={voice_id}): {e}. Tentando fallback...")
+        try:
+            _run_coroutine(
+                _generate_async(
+                    text=text,
+                    voice=FALLBACK_VOICE,
+                    rate="+0%",
+                    pitch="+0Hz",
+                    output_path=dest,
+                )
+            )
+            words = len(text.split())
+            return dest, round((words / 150) * 60, 2)
+        except Exception as e2:
+            logger.error(f"Fallback TTS também falhou: {e2}")
+            raise
 
 
 def estimate_duration(text: str, speed: float = 1.0) -> float:
     """Estima duração em segundos com base no número de palavras."""
     words = len(text.split())
     return round((words / 150) * 60 * (1 / speed), 2)
+
+
+async def list_available_voices_async() -> list[dict]:
+    """Lista todas as vozes disponíveis no edge-tts."""
+    voices = await edge_tts.list_voices()
+    return [{"id": v["ShortName"], "name": v["FriendlyName"], "locale": v["Locale"]} for v in voices]
+
+
+def list_available_voices() -> list[dict]:
+    """Versão síncrona de list_available_voices_async."""
+    return _run_coroutine(list_available_voices_async())
