@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout codigo
+      - name: Checkout código
         uses: actions/checkout@v4
 
       - name: Configurar Java 17
@@ -19,80 +19,73 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Configurar Flutter
+      - name: Configurar Flutter (latest stable)
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
-      - name: Montar projeto no diretorio limpo do Flutter
+      - name: Verificar versão Flutter
+        run: flutter --version
+
+      - name: Criar projeto Flutter limpo em /tmp
         run: |
-          # Cria projeto Flutter completo (com todos os arquivos Android)
           flutter create \
             --project-name storycast_ai \
             --org com.storycastai \
             --platforms android \
             /tmp/storycast_build
 
-          # Substitui lib/ pelo nosso codigo
+      - name: Copiar lib e pubspec para projeto limpo
+        run: |
           rm -rf /tmp/storycast_build/lib
           cp -r mobile/lib /tmp/storycast_build/lib
-
-          # Substitui pubspec.yaml pelo nosso
           cp mobile/pubspec.yaml /tmp/storycast_build/pubspec.yaml
 
-          # Substitui AndroidManifest pelo nosso (com permissoes corretas)
+      - name: Copiar AndroidManifest personalizado
+        run: |
           cp mobile/android/app/src/main/AndroidManifest.xml \
-            /tmp/storycast_build/android/app/src/main/AndroidManifest.xml
+             /tmp/storycast_build/android/app/src/main/AndroidManifest.xml
 
-          # Cria file_paths.xml necessario para FileProvider
+      - name: Criar file_paths.xml para FileProvider
+        run: |
           mkdir -p /tmp/storycast_build/android/app/src/main/res/xml
-          cat > /tmp/storycast_build/android/app/src/main/res/xml/file_paths.xml << 'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths>
-            <external-path name="external_files" path="."/>
-            <files-path name="files" path="."/>
-            <cache-path name="cache" path="."/>
-          </paths>
-          XML
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<paths>\n  <external-path name="external_files" path="."/>\n  <cache-path name="cache_files" path="."/>\n</paths>\n' \
+            > /tmp/storycast_build/android/app/src/main/res/xml/file_paths.xml
 
-          # Garante minSdk 21
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' \
-            /tmp/storycast_build/android/app/build.gradle 2>/dev/null || true
-          sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' \
-            /tmp/storycast_build/android/app/build.gradle 2>/dev/null || true
+      - name: Definir minSdk 21
+        run: |
+          BUILD_GRADLE=/tmp/storycast_build/android/app/build.gradle
+          sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' "$BUILD_GRADLE" || true
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' "$BUILD_GRADLE" || true
+          echo "=== minSdk no build.gradle ==="
+          grep -n "minSdk" "$BUILD_GRADLE"
 
-          echo "Projeto montado em /tmp/storycast_build"
-          echo "Lib files:"
-          find /tmp/storycast_build/lib -name "*.dart" | wc -l
-          echo "pubspec.yaml deps:"
-          grep "flutter_riverpod\|go_router\|dio\|just_audio" /tmp/storycast_build/pubspec.yaml
-
-      - name: Instalar dependencias
+      - name: Instalar dependências
         working-directory: /tmp/storycast_build
         run: flutter pub get
 
-      - name: Aceitar licencas Android
+      - name: Aceitar licenças Android
         run: yes | sdkmanager --licenses || true
 
-      - name: Build APK
+      - name: Build APK release
         working-directory: /tmp/storycast_build
+        run: flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
+        continue-on-error: true
+
+      - name: Verificar resultado do build
         run: |
-          flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
-          EXIT=${PIPESTATUS[0]}
-          [ $EXIT -ne 0 ] && echo "=== ERRO BUILD ===" && tail -100 /tmp/build.log
-          exit $EXIT
+          APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
+          if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then
+            echo "✅ APK GERADO COM SUCESSO!"
+            ls -lh "$APK_DIR"/*.apk
+          else
+            echo "❌ APK NÃO ENCONTRADO — build falhou"
+            echo "=== ÚLTIMAS 60 LINHAS DO LOG ==="
+            tail -60 /tmp/build.log
+            exit 1
+          fi
 
-      - name: Upload log se falhou
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build.log
-          retention-days: 7
-
-      - name: Upload APK arm64
-        if: success()
+      - name: Upload APK arm64 (celulares modernos)
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK
@@ -100,9 +93,16 @@ jobs:
           retention-days: 30
 
       - name: Upload todos os APKs
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK-todos
           path: /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
+
+      - name: Upload log (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          retention-days: 7
