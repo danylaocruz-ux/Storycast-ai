@@ -21,7 +21,3 @@ services:
         value: false
       - key: PYTHON_VERSION
         value: 3.11.0
-    disk:
-      name: storycast-data
-      mountPath: /opt/render/project/src/storage
-      sizeGB: 1
