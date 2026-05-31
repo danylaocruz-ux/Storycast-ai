@@ -1,6 +1,6 @@
 """
 Orquestrador do processamento completo de um livro.
-Pipeline: extração → análise → personagens → TTS
+Pipeline: extração → análise → personagens → TTS (edge-tts, gratuito)
 """
 import logging
 from sqlalchemy.orm import Session
@@ -15,7 +15,6 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-# Paleta de cores para personagens
 CHAR_COLORS = [
     "#7C3AED", "#2563EB", "#059669", "#DC2626",
     "#D97706", "#DB2777", "#0891B2", "#65A30D",
@@ -34,7 +33,7 @@ def process_book(book_id: int, db: Session) -> None:
         return
 
     try:
-        # ── FASE 1: Extração de texto ─────────────────────────────────────────
+        # FASE 1: Extração de texto
         _update_status(db, book, "extracting", "Extraindo texto...", 5)
         raw_text = extract_text(book.file_path, book.format)
         text = clean_text(raw_text)
@@ -43,15 +42,19 @@ def process_book(book_id: int, db: Session) -> None:
         book.total_chars = len(text)
         db.commit()
 
-        # ── FASE 2: Divisão em segmentos ──────────────────────────────────────
+        # FASE 2: Divisão em segmentos
         _update_status(db, book, "analyzing", "Dividindo em segmentos...", 15)
         chunks = split_into_chunks(text, max_chars=600)
 
-        # ── FASE 3: Identificação de personagens ──────────────────────────────
+        # FASE 3: Identificação de personagens (requer GROQ_API_KEY)
         _update_status(db, book, "analyzing", "Identificando personagens...", 20)
-        char_data = extract_characters(text)
+        if settings.GROQ_API_KEY:
+            char_data = extract_characters(text)
+        else:
+            logger.warning("GROQ_API_KEY não configurada — usando narrador padrão")
+            char_data = [_default_narrator_data()]
 
-        # Persiste personagens no banco
+        # Persiste personagens
         char_map: dict[str, Character] = {}
         used_voice_ids: set[str] = set()
 
@@ -80,25 +83,25 @@ def process_book(book_id: int, db: Session) -> None:
                 color=CHAR_COLORS[i % len(CHAR_COLORS)],
             )
             db.add(char)
-            db.flush()  # Obtém ID sem commit
+            db.flush()
             char_map[cd["name"]] = char
 
         db.commit()
         character_names = list(char_map.keys())
-
-        # Garante Narrador como fallback
         narrator = next((c for c in char_map.values() if c.is_narrator), None)
         if narrator is None and char_map:
             narrator = list(char_map.values())[0]
 
-        # ── FASE 4: Análise de segmentos (batch) ──────────────────────────────
+        # FASE 4: Análise de segmentos
         _update_status(db, book, "analyzing", "Analisando narrativa...", 35)
-        analyses = analyze_segments_batch(chunks, character_names, batch_size=15)
+        if settings.GROQ_API_KEY:
+            analyses = analyze_segments_batch(chunks, character_names, batch_size=15)
+        else:
+            analyses = [{"character_name": "Narrador", "emotion": "neutral"}] * len(chunks)
 
-        # ── FASE 5: Geração de áudio ──────────────────────────────────────────
+        # FASE 5: Geração de áudio (edge-tts, sempre disponível)
         _update_status(db, book, "generating_audio", "Gerando áudio...", 40)
         total_duration = 0.0
-        has_elevenlabs = bool(settings.ELEVENLABS_API_KEY)
 
         for idx, (chunk, analysis) in enumerate(zip(chunks, analyses)):
             char_name = analysis.get("character_name", "Narrador")
@@ -108,7 +111,7 @@ def process_book(book_id: int, db: Session) -> None:
             audio_path = None
             duration = estimate_duration(chunk)
 
-            if has_elevenlabs and char and char.voice_id:
+            if char and char.voice_id:
                 try:
                     audio_path, duration = generate_audio(
                         text=chunk,
@@ -131,7 +134,6 @@ def process_book(book_id: int, db: Session) -> None:
             db.add(seg)
             total_duration += duration
 
-            # Atualiza progresso a cada 10 segmentos
             if idx % 10 == 0:
                 progress = 40 + int((idx / len(chunks)) * 55)
                 _update_status(db, book, "generating_audio",
@@ -142,7 +144,6 @@ def process_book(book_id: int, db: Session) -> None:
         book.total_duration = total_duration
         db.commit()
 
-        # ── FASE 6: Concluído ─────────────────────────────────────────────────
         _update_status(db, book, "ready", "Processamento concluído!", 100)
 
     except Exception as e:
@@ -156,3 +157,15 @@ def _update_status(db: Session, book: Book, status: str, message: str, progress:
     book.progress = progress
     db.commit()
     logger.info(f"[Livro {book.id}] {status} ({progress}%) — {message}")
+
+
+def _default_narrator_data() -> dict:
+    return {
+        "name": "Narrador",
+        "description": "Voz narrativa da história",
+        "gender": "neutral",
+        "age_group": "adult",
+        "personality": "narrator",
+        "is_narrator": True,
+        "appearance_order": 0,
+    }
