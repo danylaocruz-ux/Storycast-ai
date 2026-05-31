@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+import threading
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models.user import User
 from ..models.book import Book
 from ..models.character import Character
@@ -10,15 +11,12 @@ from ..services.voice_assigner import list_available_voices
 
 router = APIRouter(tags=["characters"])
 
-# ── Rota fora do prefixo /books/{book_id} para evitar conflito com /{char_id} ─
 
 @router.get("/voices/available")
 def available_voices(current_user: User = Depends(get_current_user)):
-    """Lista vozes disponíveis do ElevenLabs para atribuição manual."""
+    """Lista vozes disponíveis agrupadas por idioma."""
     return list_available_voices()
 
-
-# ── Rotas de personagens ───────────────────────────────────────────────────────
 
 @router.get("/books/{book_id}/characters", response_model=list[CharacterResponse])
 def list_characters(
@@ -37,8 +35,7 @@ def list_characters(
 
 @router.get("/books/{book_id}/characters/{char_id}", response_model=CharacterResponse)
 def get_character(
-    book_id: int,
-    char_id: int,
+    book_id: int, char_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -48,8 +45,7 @@ def get_character(
 
 @router.put("/books/{book_id}/characters/{char_id}", response_model=CharacterResponse)
 def update_character(
-    book_id: int,
-    char_id: int,
+    book_id: int, char_id: int,
     payload: CharacterUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -61,6 +57,32 @@ def update_character(
     db.commit()
     db.refresh(char)
     return char
+
+
+@router.post("/books/{book_id}/regenerate-audio", status_code=202)
+def regenerate_audio(
+    book_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Regenera o TTS do livro com as vozes atuais dos personagens."""
+    _assert_owns_book(db, book_id, current_user.id)
+    book = db.query(Book).filter(Book.id == book_id).first()
+
+    if book.status in ("extracting", "analyzing", "generating_audio"):
+        raise HTTPException(status_code=400, detail="Livro já está sendo processado")
+
+    def _run():
+        session = SessionLocal()
+        try:
+            from ..services.book_processor import regenerate_audio as _regen
+            _regen(book_id, session)
+        finally:
+            session.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {"message": "Regeneração de áudio iniciada"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
