@@ -35,12 +35,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   Future<void> _upload() async {
     if (_selectedFile == null || _selectedFile!.path == null) return;
-
     setState(() {
       _isUploading = true;
       _error = null;
     });
-
     try {
       final data = await ApiService.instance.uploadBook(
         _selectedFile!.path!,
@@ -48,7 +46,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       );
       final book = BookModel.fromJson(data);
       ref.read(libraryProvider.notifier).addBook(book);
-
       if (mounted) {
         context.go('/processing/${book.id}');
       }
@@ -84,7 +81,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            // Chips de formato
             Wrap(
               spacing: 8,
               children: ['PDF', 'EPUB', 'DOCX', 'TXT'].map((fmt) => Container(
@@ -104,10 +100,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ),
               )).toList(),
             ),
-
             const SizedBox(height: 32),
-
-            // Drop zone
             GestureDetector(
               onTap: _isUploading ? null : _pickFile,
               child: AnimatedContainer(
@@ -141,7 +134,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                         color: _selectedFile != null
                             ? AppColors.textPrimary
                             : AppColors.textSecondary,
-                        fontWeight: _selectedFile != null ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight:
+                            _selectedFile != null ? FontWeight.w600 : FontWeight.normal,
                         fontSize: 15,
                       ),
                     ),
@@ -159,7 +153,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ),
               ),
             ),
-
             if (_error != null) ...[
               const SizedBox(height: 12),
               Container(
@@ -182,33 +175,28 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ),
               ),
             ],
-
             const Spacer(),
-
-            // Info box
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: AppColors.info.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Row(
+              child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Icon(Icons.info_outline, color: AppColors.info, size: 18),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Após o upload, a IA analisará o texto, identificará personagens e gerará o áudio automaticamente. O processo pode levar alguns minutos.',
+                      'Apos o upload, a IA vai analisar o texto, identificar personagens e gerar audio automaticamente. O processo pode levar alguns minutos.',
                       style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                     ),
                   ),
                 ],
               ),
             ),
-
             const SizedBox(height: 16),
-
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -232,7 +220,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                     : const Text('Processar livro'),
               ),
             ),
-
             const SizedBox(height: 16),
           ],
         ),
@@ -246,4 +233,3 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
-                  
