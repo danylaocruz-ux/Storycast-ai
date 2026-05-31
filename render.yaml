@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: storycast-ai-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./storycast.db
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: STORAGE_PATH
+        value: ./storage
+      - key: DEBUG
+        value: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    disk:
+      name: storycast-data
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1
