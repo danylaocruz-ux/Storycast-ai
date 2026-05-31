@@ -76,16 +76,6 @@ Preparing "Install CMake 3.22.1 v.3.22.1".
 Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
 "Install CMake 3.22.1 v.3.22.1" complete.
 "Install CMake 3.22.1 v.3.22.1" finished.
-lib/features/settings/screens/settings_screen.dart:222:43: Error: The method 'getPreference' isn't defined for the type 'ApiService'.
- - 'ApiService' is from 'package:storycast_ai/data/services/api_service.dart' ('lib/data/services/api_service.dart').
-Try correcting the name to the name of an existing method, or defining a method named 'getPreference'.
-    final val = await ApiService.instance.getPreference(_key);
-                                          ^^^^^^^^^^^^^
-lib/features/settings/screens/settings_screen.dart:263:33: Error: The method 'savePreference' isn't defined for the type 'ApiService'.
- - 'ApiService' is from 'package:storycast_ai/data/services/api_service.dart' ('lib/data/services/api_service.dart').
-Try correcting the name to the name of an existing method, or defining a method named 'savePreference'.
-      await ApiService.instance.savePreference(_key, picked);
-                                ^^^^^^^^^^^^^^
 lib/features/characters/screens/voice_config_screen.dart:110:35: Error: The method 'regenerateAudio' isn't defined for the type 'ApiService'.
  - 'ApiService' is from 'package:storycast_ai/data/services/api_service.dart' ('lib/data/services/api_service.dart').
 Try correcting the name to the name of an existing method, or defining a method named 'regenerateAudio'.
@@ -106,6 +96,6 @@ Execution failed for task ':app:compileFlutterBuildRelease'.
 > Run with --scan to generate a Build Scan (Powered by Develocity).
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 2m 44s
-Running Gradle task 'assembleRelease'...                          164.7s
+BUILD FAILED in 3m 1s
+Running Gradle task 'assembleRelease'...                          181.9s
 Gradle task assembleRelease failed with exit code 1
