@@ -48,6 +48,17 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
           icon: const Icon(Icons.close),
           onPressed: () => context.go('/home'),
         ),
+        actions: [
+          // Botão de configurar vozes no AppBar
+          TextButton.icon(
+            onPressed: () => context.push('/voices/${widget.bookId}'),
+            icon: const Icon(Icons.tune, size: 18, color: AppColors.primary),
+            label: const Text(
+              'Vozes',
+              style: TextStyle(color: AppColors.primary, fontSize: 13),
+            ),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
@@ -86,6 +97,35 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                               ],
                             ),
                           ),
+                          // Botão configurar vozes no header
+                          GestureDetector(
+                            onTap: () => context.push('/voices/${widget.bookId}'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white.withOpacity(0.3)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.tune, color: Colors.white, size: 14),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Configurar\nvozes',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -98,73 +138,61 @@ class _CharactersScreenState extends ConsumerState<CharactersScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (_, idx) => _CharacterTile(
                           character: _characters[idx],
-                          onEdit: () => _showEditDialog(_characters[idx]),
+                          onConfigVoice: () => context.push('/voices/${widget.bookId}'),
                         ),
                       ),
                     ),
 
-                    // Botão escutar
+                    // Botões de ação
                     Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => context.go('/player/${widget.bookId}'),
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Começar a ouvir'),
-                        ),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.push('/voices/${widget.bookId}'),
+                              icon: const Icon(Icons.mic, size: 18),
+                              label: const Text('Configurar Vozes'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                side: const BorderSide(color: AppColors.primary),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => context.go('/player/${widget.bookId}'),
+                              icon: const Icon(Icons.play_arrow, size: 20),
+                              label: const Text('Ouvir'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
     );
   }
-
-  Future<void> _showEditDialog(CharacterModel char) async {
-    String? selectedVoiceId = char.voiceId;
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surfaceCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Editar ${char.name}',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Voz atual: ${char.voiceName ?? "Não atribuída"}',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Para alterar vozes, acesse as configurações do personagem.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _CharacterTile extends StatelessWidget {
   final CharacterModel character;
-  final VoidCallback onEdit;
+  final VoidCallback onConfigVoice;
 
-  const _CharacterTile({required this.character, required this.onEdit});
+  const _CharacterTile({required this.character, required this.onConfigVoice});
 
   @override
   Widget build(BuildContext context) {
@@ -244,9 +272,12 @@ class _CharacterTile extends StatelessWidget {
                       const Text(' · ', style: TextStyle(color: AppColors.textHint)),
                       const Icon(Icons.mic, size: 12, color: AppColors.textSecondary),
                       const SizedBox(width: 2),
-                      Text(
-                        character.voiceName!,
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      Flexible(
+                        child: Text(
+                          character.voiceName!,
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ],
@@ -264,8 +295,9 @@ class _CharacterTile extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.edit_outlined, color: AppColors.textSecondary, size: 18),
-            onPressed: onEdit,
+            icon: const Icon(Icons.mic_outlined, color: AppColors.primary, size: 18),
+            tooltip: 'Configurar voz',
+            onPressed: onConfigVoice,
           ),
         ],
       ),
