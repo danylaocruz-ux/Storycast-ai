@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,9 +26,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
-      - name: Verificar versão Flutter
-        run: flutter --version
 
       - name: Criar projeto Flutter limpo em /tmp
         run: |
@@ -60,7 +60,6 @@ jobs:
               sed -i 's/minSdk flutter\.minSdkVersion/minSdk 21/g' "$f" || true
               sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' "$f" || true
               sed -i 's/minSdk(flutter\.minSdkVersion)/minSdk(21)/g' "$f" || true
-              echo "=== $f (linhas minSdk) ===" && grep -n "minSdk" "$f" || echo "(nenhuma linha minSdk)"
             fi
           done
 
@@ -74,40 +73,42 @@ jobs:
       - name: Build APK release
         working-directory: /tmp/storycast_build
         run: flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
-        continue-on-error: true
 
-      - name: Salvar log no repo (para leitura via API)
+      - name: Salvar log de build no repo
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LOG_CONTENT=$(tail -100 /tmp/build.log 2>/dev/null || echo "Log nao encontrado")
-          APK_EXISTS="false"
-          if ls /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk 1>/dev/null 2>&1; then
-            APK_EXISTS="true"
-            APK_LIST=$(ls /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk)
+          # Verificar se APK foi gerado
+          APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
+          if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then
+            STATUS="SUCCESS"
+            ls -lh "$APK_DIR"/*.apk
+          else
+            STATUS="FAILED"
           fi
+          echo "BUILD STATUS: $STATUS"
 
-          echo "APK_EXISTS=$APK_EXISTS"
-          echo "=== LOG TAIL ==="
-          echo "$LOG_CONTENT"
+          # Últimas 150 linhas do log
+          LOG=$(tail -150 /tmp/build.log 2>/dev/null || echo "sem log")
 
-          # Salvar no repo via API
-          CONTENT=$(printf "APK_EXISTS=%s\n\n%s" "$APK_EXISTS" "$LOG_CONTENT" | base64 -w 0)
-          SHA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+          # Gravar no repo
+          CONTENT=$(printf "STATUS: %s\n\n%s" "$STATUS" "$LOG" | base64 -w 0)
+          SHA_OLD=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+            2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
 
-          if [ -n "$SHA" ]; then
+          if [ -n "$SHA_OLD" ]; then
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result log\",\"content\":\"$CONTENT\",\"sha\":\"$SHA\"}"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\",\"sha\":\"$SHA_OLD\"}" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('committed:', d.get('commit',{}).get('sha','ERRO')[:12])"
           else
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result log\",\"content\":\"$CONTENT\"}"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('committed:', d.get('commit',{}).get('sha','ERRO')[:12])"
           fi
-          echo "Log salvo no repo"
 
       - name: Upload APK arm64
         if: success()
@@ -115,6 +116,7 @@ jobs:
         with:
           name: StoryCast-AI-APK
           path: /tmp/storycast_build/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          if-no-files-found: error
           retention-days: 30
 
       - name: Upload todos os APKs
@@ -123,4 +125,5 @@ jobs:
         with:
           name: StoryCast-AI-APK-todos
           path: /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
           retention-days: 30
