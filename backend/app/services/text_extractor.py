@@ -41,7 +41,6 @@ def _extract_epub(path: str) -> str:
     chapters = []
     for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
         soup = BeautifulSoup(item.get_content(), "html.parser")
-        # Remove tags de script/style
         for tag in soup(["script", "style"]):
             tag.decompose()
         text = soup.get_text(separator="\n")
@@ -63,19 +62,21 @@ def _extract_txt(path: str) -> str:
 
 def clean_text(text: str) -> str:
     """Limpa o texto extraído para processamento."""
-    # Remove quebras excessivas
     text = re.sub(r"\n{3,}", "\n\n", text)
-    # Remove espaços excessivos
     text = re.sub(r"[ \t]{2,}", " ", text)
-    # Remove caracteres de controle (exceto newline/tab)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     return text.strip()
 
 
-def split_into_chunks(text: str, max_chars: int = 800) -> list[str]:
+def split_into_chunks(text: str, max_chars: int = 1800) -> list[str]:
     """
-    Divide o texto em chunks respeitando sentenças.
-    Cada chunk tem no máximo max_chars caracteres.
+    Divide o texto em chunks maiores para reduzir chamadas TTS.
+    Chunks maiores = menos resets de prosódia = áudio mais natural.
+
+    Estratégia:
+    1. Tenta agrupar parágrafos completos até atingir max_chars
+    2. Só divide no meio de um parágrafo se ele for muito longo
+    3. Divisões sempre no fim de frases completas (.!?)
     """
     # Divide por parágrafos primeiro
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
@@ -85,9 +86,9 @@ def split_into_chunks(text: str, max_chars: int = 800) -> list[str]:
     for para in paragraphs:
         # Parágrafo cabe no chunk atual
         if len(current) + len(para) + 2 <= max_chars:
-            current = f"{current}\n\n{para}".strip()
+            current = f"{current}\n\n{para}".strip() if current else para
         else:
-            # Salva o chunk atual se não estiver vazio
+            # Salva chunk atual se não estiver vazio
             if current:
                 chunks.append(current)
                 current = ""
@@ -96,7 +97,7 @@ def split_into_chunks(text: str, max_chars: int = 800) -> list[str]:
                 sentences = re.split(r"(?<=[.!?])\s+", para)
                 for sent in sentences:
                     if len(current) + len(sent) + 1 <= max_chars:
-                        current = f"{current} {sent}".strip()
+                        current = f"{current} {sent}".strip() if current else sent
                     else:
                         if current:
                             chunks.append(current)
