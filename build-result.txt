@@ -17,23 +17,31 @@ Preparing "Install CMake 3.22.1 v.3.22.1".
 Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
 "Install CMake 3.22.1 v.3.22.1" complete.
 "Install CMake 3.22.1 v.3.22.1" finished.
-lib/core/theme/app_theme.dart:5:16: Error: Can't find '}' to match '{'.
-class AppTheme {
-               ^
-lib/core/theme/app_theme.dart:132:7: Error: Expected ';' after this.
-      )
-      ^
-lib/core/theme/app_theme.dart:132:8: Error: Expected a class member, but got ''.
-      )
-       ^...
-Target kernel_snapshot_program failed: Exception
-
+Expected to find fonts for (MaterialIcons, packages/cupertino_icons/CupertinoIcons), but found (MaterialIcons). This usually means you are referring to font families in an IconData class but not including them in the assets section of your pubspec.yaml, are missing the package that would include them, or are missing "uses-material-design: true".
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 7384 bytes (99.6% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Caught exception: Already watching path: /tmp/storycast_build/android
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileFlutterBuildRelease'.
-> Process 'command '/opt/hostedtoolcache/flutter/stable-3.44.0-x64/flutter/bin/flutter'' finished with non-zero exit value 1
+Execution failed for task ':file_picker:checkReleaseAarMetadata'.
+> A failure occurred while executing com.android.build.gradle.internal.tasks.CheckAarMetadataWorkAction
+   > An issue was found when checking AAR metadata:
+
+       1.  Dependency ':flutter_plugin_android_lifecycle' requires libraries and applications that
+           depend on it to compile against version 36 or later of the
+           Android APIs.
+
+           :file_picker is currently compiled against android-34.
+
+           Recommended action: Update this project to use a newer compileSdk
+           of at least 36, for example 36.
+
+           Note that updating a library or application's compileSdk (which
+           allows newer APIs to be used) can be done separately from updating
+           targetSdk (which opts the app in to new runtime behavior) and
+           minSdk (which determines which devices the app can be installed
+           on).
 
 * Try:
 > Run with --stacktrace option to get the stack trace.
@@ -41,6 +49,6 @@ Execution failed for task ':app:compileFlutterBuildRelease'.
 > Run with --scan to generate a Build Scan (Powered by Develocity).
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 2m 41s
-Running Gradle task 'assembleRelease'...                          162.3s
+BUILD FAILED in 3m 57s
+Running Gradle task 'assembleRelease'...                          237.6s
 Gradle task assembleRelease failed with exit code 1
