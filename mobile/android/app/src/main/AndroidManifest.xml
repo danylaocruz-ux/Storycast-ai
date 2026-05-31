@@ -45,6 +45,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Flutter v2 embedding (obrigatório no Flutter 3.22+) -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
         <!-- Suporte ao FileProvider para Android 7+ -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -52,8 +57,4 @@
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"/>
-        </provider>
-    </application>
-</manifest>
+    
