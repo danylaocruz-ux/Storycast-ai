@@ -25,14 +25,40 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Criar pastas de assets necessárias
-        working-directory: mobile
+      - name: Preparar projeto Flutter completo
         run: |
-          mkdir -p assets/images assets/icons assets/animations assets/fonts
+          # Cria projeto Flutter template com boilerplate Android
+          flutter create \
+            --project-name storycast_ai \
+            --org com.storycastai \
+            --platforms android \
+            /tmp/flutter_template
+
+          # Copia boilerplate Android (build.gradle, settings.gradle, Gradle wrapper, etc.)
+          cp -r /tmp/flutter_template/android/* mobile/android/
+
+          # Mantém nosso AndroidManifest.xml personalizado
+          cp mobile/android/app/src/main/AndroidManifest.xml \
+             /tmp/AndroidManifest_backup.xml || true
+
+          cp /tmp/flutter_template/android/app/src/main/AndroidManifest.xml \
+             mobile/android/app/src/main/AndroidManifest.xml
+
+          # Restaura nosso AndroidManifest personalizado
+          cp /tmp/AndroidManifest_backup.xml \
+             mobile/android/app/src/main/AndroidManifest.xml || true
+
+          # Cria pastas de assets
+          mkdir -p mobile/assets/images mobile/assets/icons \
+                   mobile/assets/animations mobile/assets/fonts
 
       - name: Instalar dependências
         working-directory: mobile
         run: flutter pub get
+
+      - name: Gerar código (build_runner)
+        working-directory: mobile
+        run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Aceitar licenças Android
         run: yes | sdkmanager --licenses || true
@@ -54,4 +80,3 @@ jobs:
           name: StoryCast-AI-APK-todos
           path: mobile/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
-
