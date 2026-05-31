@@ -54,11 +54,28 @@ jobs:
 
       - name: Definir minSdk 21
         run: |
-          BUILD_GRADLE=/tmp/storycast_build/android/app/build.gradle
-          sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' "$BUILD_GRADLE" || true
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/' "$BUILD_GRADLE" || true
-          echo "=== minSdk no build.gradle ==="
-          grep -n "minSdk" "$BUILD_GRADLE"
+          echo "=== Arquivos gradle encontrados ==="
+          find /tmp/storycast_build/android -name "*.gradle" -o -name "*.gradle.kts" | sort
+
+          # Groovy DSL (build.gradle)
+          if [ -f /tmp/storycast_build/android/app/build.gradle ]; then
+            echo "=== build.gradle original (trecho android) ==="
+            grep -A5 -B2 "minSdk" /tmp/storycast_build/android/app/build.gradle || echo "(minSdk não encontrado)"
+            sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 21/g' /tmp/storycast_build/android/app/build.gradle
+            sed -i 's/minSdk flutter\.minSdkVersion/minSdk 21/g' /tmp/storycast_build/android/app/build.gradle
+            sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' /tmp/storycast_build/android/app/build.gradle
+          fi
+
+          # Kotlin DSL (build.gradle.kts)
+          if [ -f /tmp/storycast_build/android/app/build.gradle.kts ]; then
+            echo "=== build.gradle.kts original (trecho android) ==="
+            grep -A5 -B2 "minSdk" /tmp/storycast_build/android/app/build.gradle.kts || echo "(minSdk não encontrado)"
+            sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' /tmp/storycast_build/android/app/build.gradle.kts
+            sed -i 's/minSdkVersion(flutter\.minSdkVersion)/minSdkVersion(21)/g' /tmp/storycast_build/android/app/build.gradle.kts
+          fi
+
+          echo "=== Resultado final ==="
+          find /tmp/storycast_build/android -name "*.gradle*" -exec grep -l "minSdk" {} \; | xargs grep -n "minSdk" || echo "(nenhum arquivo com minSdk encontrado — Flutter default será usado)"
 
       - name: Instalar dependências
         working-directory: /tmp/storycast_build
@@ -76,16 +93,17 @@ jobs:
         run: |
           APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
           if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then
-            echo "✅ APK GERADO COM SUCESSO!"
+            echo "APK GERADO COM SUCESSO!"
             ls -lh "$APK_DIR"/*.apk
           else
-            echo "❌ APK NÃO ENCONTRADO — build falhou"
-            echo "=== ÚLTIMAS 60 LINHAS DO LOG ==="
-            tail -60 /tmp/build.log
+            echo "APK NAO ENCONTRADO — build falhou"
+            echo "=== ÚLTIMAS 80 LINHAS DO LOG ==="
+            tail -80 /tmp/build.log
             exit 1
           fi
 
       - name: Upload APK arm64 (celulares modernos)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK
@@ -93,6 +111,7 @@ jobs:
           retention-days: 30
 
       - name: Upload todos os APKs
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK-todos
