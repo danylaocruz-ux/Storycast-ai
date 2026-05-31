@@ -52,14 +52,22 @@ jobs:
           printf '<?xml version="1.0" encoding="utf-8"?>\n<paths>\n  <external-path name="external_files" path="."/>\n  <cache-path name="cache_files" path="."/>\n</paths>\n' \
             > /tmp/storycast_build/android/app/src/main/res/xml/file_paths.xml
 
-      - name: Definir minSdk 21
+      - name: Ajustar compileSdk e minSdk
         run: |
           for f in /tmp/storycast_build/android/app/build.gradle /tmp/storycast_build/android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
+              echo "=== Patching $f ==="
+              # compileSdk
+              sed -i 's/compileSdk = flutter\.compileSdkVersion/compileSdk = 36/g' "$f" || true
+              sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/g' "$f" || true
+              sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/g' "$f" || true
+              # minSdk
+              sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' "$f" || true
               sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 21/g' "$f" || true
               sed -i 's/minSdk flutter\.minSdkVersion/minSdk 21/g' "$f" || true
-              sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' "$f" || true
               sed -i 's/minSdk(flutter\.minSdkVersion)/minSdk(21)/g' "$f" || true
+              echo "--- Result ---"
+              grep -E "compileSdk|minSdk|targetSdk" "$f" || true
             fi
           done
 
@@ -79,7 +87,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Verificar se APK foi gerado
           APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
           if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then
             STATUS="SUCCESS"
@@ -88,26 +95,19 @@ jobs:
             STATUS="FAILED"
           fi
           echo "BUILD STATUS: $STATUS"
-
-          # Últimas 150 linhas do log
           LOG=$(tail -150 /tmp/build.log 2>/dev/null || echo "sem log")
-
-          # Gravar no repo
           CONTENT=$(printf "STATUS: %s\n\n%s" "$STATUS" "$LOG" | base64 -w 0)
           SHA_OLD=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
             2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
-
           if [ -n "$SHA_OLD" ]; then
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\",\"sha\":\"$SHA_OLD\"}" \
-              | python3 -c "import sys,json; d=json.load(sys.stdin); print('committed:', d.get('commit',{}).get('sha','ERRO')[:12])"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\",\"sha\":\"$SHA_OLD\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',{}).get('sha','?')[:8])"
           else
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" \
-              | python3 -c "import sys,json; d=json.load(sys.stdin); print('committed:', d.get('commit',{}).get('sha','ERRO')[:12])"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',{}).get('sha','?')[:8])"
           fi
 
       - name: Upload APK arm64
