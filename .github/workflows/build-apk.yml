@@ -109,6 +109,14 @@ jobs:
         working-directory: /tmp/storycast_build
         run: flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
 
+      - name: Listar APKs gerados
+        if: always()
+        run: |
+          APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
+          echo "=== APKs encontrados ==="
+          ls -lh "$APK_DIR"/*.apk 2>/dev/null || echo "Nenhum APK encontrado em $APK_DIR"
+          find /tmp/storycast_build/build -name "*.apk" 2>/dev/null | head -20
+
       - name: Salvar log de build no repo
         if: always()
         env:
@@ -133,20 +141,11 @@ jobs:
               -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" | python3 -c "import sys,json; print('committed')"
           fi
 
-      - name: Upload APK arm64
+      - name: Upload APKs
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: StoryCast-AI-APK
-          path: /tmp/storycast_build/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload todos os APKs
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: StoryCast-AI-APK-todos
           path: /tmp/storycast_build/build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
           retention-days: 30
