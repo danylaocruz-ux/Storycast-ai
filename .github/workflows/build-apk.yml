@@ -61,7 +61,6 @@ jobs:
               sed -i 's/minSdk = flutter\.minSdkVersion/minSdk = 21/g' "$f" || true
               sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 21/g' "$f" || true
               sed -i 's/minSdk flutter\.minSdkVersion/minSdk 21/g' "$f" || true
-              grep -E "compileSdk|minSdk" "$f" || true
             fi
           done
 
@@ -69,29 +68,38 @@ jobs:
         working-directory: /tmp/storycast_build
         run: flutter pub get
 
-      - name: Corrigir compileSdk nos plugins do pub-cache
+      - name: Corrigir compileSdk nos plugins via .flutter-plugins
         run: |
-          # Buscar pub-cache em locais comuns
-          PUB_CACHE="${HOME}/.pub-cache"
-          [ -d "/root/.pub-cache" ] && PUB_CACHE="/root/.pub-cache"
-          echo "pub-cache: $PUB_CACHE"
+          FLUTTER_PLUGINS=/tmp/storycast_build/.flutter-plugins
+          echo "=== .flutter-plugins ==="
+          cat "$FLUTTER_PLUGINS" 2>/dev/null || echo "arquivo não encontrado"
+          echo ""
 
-          # Patch todos os build.gradle de plugins com compileSdk < 36
-          COUNT=0
-          find "$PUB_CACHE" -name "build.gradle" 2>/dev/null | while read f; do
-            if grep -qE "compileSdkVersion [0-9]+" "$f" 2>/dev/null; then
-              OLD=$(grep -oE "compileSdkVersion [0-9]+" "$f" | head -1)
-              VER=$(echo "$OLD" | grep -oE "[0-9]+")
-              if [ -n "$VER" ] && [ "$VER" -lt 36 ]; then
-                echo "Patching $f ($OLD → compileSdkVersion 36)"
-                sed -i "s/compileSdkVersion $VER/compileSdkVersion 36/g" "$f"
-                COUNT=$((COUNT + 1))
+          if [ -f "$FLUTTER_PLUGINS" ]; then
+            while IFS='=' read -r plugin path; do
+              # Pular comentários e linhas vazias
+              [[ "$plugin" =~ ^# ]] && continue
+              [ -z "$plugin" ] && continue
+              GRADLE="${path}/android/build.gradle"
+              if [ -f "$GRADLE" ]; then
+                BEFORE=$(grep -E "compileSdk" "$GRADLE" | head -1 | tr -d ' ')
+                sed -i 's/compileSdkVersion [0-9][0-9]*/compileSdkVersion 36/g' "$GRADLE"
+                sed -i 's/compileSdk [0-9][0-9]*/compileSdk 36/g' "$GRADLE"
+                AFTER=$(grep -E "compileSdk" "$GRADLE" | head -1 | tr -d ' ')
+                echo "  $plugin: $BEFORE → $AFTER"
+              else
+                echo "  $plugin: sem build.gradle em $GRADLE"
               fi
-            fi
-          done
-          echo "Total patched: done"
-          # Verificar file_picker especificamente
-          find "$PUB_CACHE" -path "*/file_picker*" -name "build.gradle" | xargs grep -l "compileSdk" 2>/dev/null | head -3
+            done < "$FLUTTER_PLUGINS"
+          fi
+
+          echo ""
+          echo "=== Verificação final file_picker ==="
+          FLUTTER_PLUGINS=/tmp/storycast_build/.flutter-plugins
+          FP_PATH=$(grep "^file_picker=" "$FLUTTER_PLUGINS" 2>/dev/null | cut -d= -f2-)
+          if [ -n "$FP_PATH" ]; then
+            grep "compileSdk" "${FP_PATH}/android/build.gradle" || echo "compileSdk não encontrado"
+          fi
 
       - name: Aceitar licenças Android
         run: yes | sdkmanager --licenses || true
@@ -109,7 +117,7 @@ jobs:
           if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then STATUS="SUCCESS"; ls -lh "$APK_DIR"/*.apk
           else STATUS="FAILED"; fi
           echo "BUILD STATUS: $STATUS"
-          LOG=$(tail -150 /tmp/build.log 2>/dev/null || echo "sem log")
+          LOG=$(tail -100 /tmp/build.log 2>/dev/null || echo "sem log")
           CONTENT=$(printf "STATUS: %s\n\n%s" "$STATUS" "$LOG" | base64 -w 0)
           SHA_OLD=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
@@ -117,11 +125,11 @@ jobs:
           if [ -n "$SHA_OLD" ]; then
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\",\"sha\":\"$SHA_OLD\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',{}).get('sha','?')[:8])"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\",\"sha\":\"$SHA_OLD\"}" | python3 -c "import sys,json; print('committed')"
           else
             curl -s -X PUT -H "Authorization: Bearer $GH_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/build-result.txt" \
-              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',{}).get('sha','?')[:8])"
+              -d "{\"message\":\"ci: build result [skip ci]\",\"content\":\"$CONTENT\"}" | python3 -c "import sys,json; print('committed')"
           fi
 
       - name: Upload APK arm64
