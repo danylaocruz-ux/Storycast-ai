@@ -126,6 +126,16 @@ class ApiService {
     return resp.data as Map<String, dynamic>;
   }
 
+
+  Future<Map<String, dynamic>> updateCharacterVoice(
+      int bookId, int charId, String voiceId, String voiceName) async {
+    final resp = await _dio.put('/books/\$bookId/characters/\$charId', data: {
+      'voice_id': voiceId,
+      'voice_name': voiceName,
+    });
+    return resp.data as Map<String, dynamic>;
+  }
+
   Future<List<dynamic>> getAvailableVoices() async {
     final resp = await _dio.get('/voices/available');
     return resp.data as List<dynamic>;
