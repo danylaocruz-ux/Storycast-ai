@@ -145,4 +145,6 @@ class _BookList extends ConsumerWidget {
     );
     if (confirm == true) {
       ref.read(libraryProvider.notifier).deleteBook(id);
-   
+    }
+  }
+}
