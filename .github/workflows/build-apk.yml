@@ -65,26 +65,33 @@ jobs:
             fi
           done
 
-      - name: Forçar compileSdk 36 em todos os plugins (subprojetos)
-        run: |
-          ROOT_KTS=/tmp/storycast_build/android/build.gradle.kts
-          ROOT_GRV=/tmp/storycast_build/android/build.gradle
-
-          if [ -f "$ROOT_KTS" ]; then
-            echo "Adicionando override Kotlin DSL em $ROOT_KTS"
-            printf '\nsubprojects {\n    afterEvaluate {\n        if (plugins.hasPlugin("com.android.library")) {\n            extensions.configure<com.android.build.gradle.LibraryExtension> {\n                compileSdk = 36\n            }\n        }\n    }\n}\n' >> "$ROOT_KTS"
-            echo "=== Tail root build.gradle.kts ==="
-            tail -12 "$ROOT_KTS"
-          elif [ -f "$ROOT_GRV" ]; then
-            echo "Adicionando override Groovy em $ROOT_GRV"
-            printf "\nsubprojects {\n    afterEvaluate { p ->\n        if (p.plugins.hasPlugin('com.android.library')) {\n            p.android.compileSdkVersion 36\n        }\n    }\n}\n" >> "$ROOT_GRV"
-            echo "=== Tail root build.gradle ==="
-            tail -12 "$ROOT_GRV"
-          fi
-
       - name: Instalar dependências
         working-directory: /tmp/storycast_build
         run: flutter pub get
+
+      - name: Corrigir compileSdk nos plugins do pub-cache
+        run: |
+          # Buscar pub-cache em locais comuns
+          PUB_CACHE="${HOME}/.pub-cache"
+          [ -d "/root/.pub-cache" ] && PUB_CACHE="/root/.pub-cache"
+          echo "pub-cache: $PUB_CACHE"
+
+          # Patch todos os build.gradle de plugins com compileSdk < 36
+          COUNT=0
+          find "$PUB_CACHE" -name "build.gradle" 2>/dev/null | while read f; do
+            if grep -qE "compileSdkVersion [0-9]+" "$f" 2>/dev/null; then
+              OLD=$(grep -oE "compileSdkVersion [0-9]+" "$f" | head -1)
+              VER=$(echo "$OLD" | grep -oE "[0-9]+")
+              if [ -n "$VER" ] && [ "$VER" -lt 36 ]; then
+                echo "Patching $f ($OLD → compileSdkVersion 36)"
+                sed -i "s/compileSdkVersion $VER/compileSdkVersion 36/g" "$f"
+                COUNT=$((COUNT + 1))
+              fi
+            fi
+          done
+          echo "Total patched: done"
+          # Verificar file_picker especificamente
+          find "$PUB_CACHE" -path "*/file_picker*" -name "build.gradle" | xargs grep -l "compileSdk" 2>/dev/null | head -3
 
       - name: Aceitar licenças Android
         run: yes | sdkmanager --licenses || true
@@ -99,12 +106,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           APK_DIR=/tmp/storycast_build/build/app/outputs/flutter-apk
-          if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then
-            STATUS="SUCCESS"
-            ls -lh "$APK_DIR"/*.apk
-          else
-            STATUS="FAILED"
-          fi
+          if ls "$APK_DIR"/*.apk 1>/dev/null 2>&1; then STATUS="SUCCESS"; ls -lh "$APK_DIR"/*.apk
+          else STATUS="FAILED"; fi
           echo "BUILD STATUS: $STATUS"
           LOG=$(tail -150 /tmp/build.log 2>/dev/null || echo "sem log")
           CONTENT=$(printf "STATUS: %s\n\n%s" "$STATUS" "$LOG" | base64 -w 0)
