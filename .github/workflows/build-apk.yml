@@ -25,32 +25,54 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Preparar boilerplate Android completo
+      - name: Diagnostico inicial
+        run: |
+          echo "Flutter: $(flutter --version | head -1)"
+          echo "Dart: $(dart --version)"
+          echo "Estrutura mobile/android:"
+          find mobile/android -type f 2>/dev/null || echo "(vazio)"
+
+      - name: Flutter create template
         run: |
           flutter create \
             --project-name storycast_ai \
             --org com.storycastai \
             --platforms android \
             /tmp/flutter_template
+          echo "Template criado OK"
+          ls /tmp/flutter_template/android/
 
-          cp mobile/android/app/src/main/AndroidManifest.xml /tmp/manifest_custom.xml
+      - name: Copiar boilerplate Android
+        run: |
+          cp -v mobile/android/app/src/main/AndroidManifest.xml /tmp/manifest_custom.xml
           cp -r /tmp/flutter_template/android/. mobile/android/
-          cp /tmp/manifest_custom.xml mobile/android/app/src/main/AndroidManifest.xml
+          cp -v /tmp/manifest_custom.xml mobile/android/app/src/main/AndroidManifest.xml
+          echo "Boilerplate copiado OK"
+          cat mobile/android/app/build.gradle
 
+      - name: Criar file_paths.xml
+        run: |
           mkdir -p mobile/android/app/src/main/res/xml
-          printf '<?xml version="1.0" encoding="utf-8"?>\n<paths xmlns:android="http://schemas.android.com/apk/res/android">\n  <external-path name="external_files" path="."/>\n  <files-path name="files" path="."/>\n  <cache-path name="cache" path="."/>\n</paths>\n' \
-            > mobile/android/app/src/main/res/xml/file_paths.xml
+          cat > mobile/android/app/src/main/res/xml/file_paths.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+            <external-path name="external_files" path="."/>
+            <files-path name="files" path="."/>
+            <cache-path name="cache" path="."/>
+          </paths>
+          XML
+          echo "file_paths.xml criado OK"
 
+      - name: Ajustar minSdk e criar assets
+        run: |
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/' \
-            mobile/android/app/build.gradle 2>/dev/null || true
+            mobile/android/app/build.gradle || true
           sed -i 's/minSdk flutter.minSdkVersion/minSdk 21/' \
-            mobile/android/app/build.gradle 2>/dev/null || true
-
+            mobile/android/app/build.gradle || true
           mkdir -p mobile/assets/images mobile/assets/icons \
                    mobile/assets/animations mobile/assets/fonts
-
-          echo "=== build.gradle ==="
-          cat mobile/android/app/build.gradle
+          echo "Ajustes concluidos"
+          grep -E "minSdk|compileSdk|targetSdk" mobile/android/app/build.gradle
 
       - name: Instalar dependencias
         working-directory: mobile
@@ -59,24 +81,20 @@ jobs:
       - name: Aceitar licencas Android
         run: yes | sdkmanager --licenses || true
 
-      - name: Build APK (com log completo)
+      - name: Build APK
         working-directory: mobile
         run: |
-          flutter build apk --split-per-abi --release --verbose \
-            2>&1 | tee /tmp/flutter_build.log
-          BUILD_EXIT=${PIPESTATUS[0]}
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "=== ULTIMAS 100 LINHAS DO LOG ==="
-            tail -100 /tmp/flutter_build.log
-            exit $BUILD_EXIT
-          fi
+          flutter build apk --split-per-abi --release 2>&1 | tee /tmp/build.log
+          EXIT=${PIPESTATUS[0]}
+          [ $EXIT -ne 0 ] && tail -80 /tmp/build.log
+          exit $EXIT
 
-      - name: Upload log de erro
+      - name: Upload log se falhou
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-build-log
-          path: /tmp/flutter_build.log
+          name: build-log
+          path: /tmp/build.log
           retention-days: 7
 
       - name: Upload APK arm64
