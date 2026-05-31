@@ -76,11 +76,11 @@ Preparing "Install CMake 3.22.1 v.3.22.1".
 Installing CMake 3.22.1 in /usr/local/lib/android/sdk/cmake/3.22.1
 "Install CMake 3.22.1 v.3.22.1" complete.
 "Install CMake 3.22.1 v.3.22.1" finished.
-lib/features/characters/screens/voice_config_screen.dart:110:35: Error: The method 'regenerateAudio' isn't defined for the type 'ApiService'.
+lib/features/characters/screens/voice_config_screen.dart:83:31: Error: The method 'updateCharacterVoice' isn't defined for the type 'ApiService'.
  - 'ApiService' is from 'package:storycast_ai/data/services/api_service.dart' ('lib/data/services/api_service.dart').
-Try correcting the name to the name of an existing method, or defining a method named 'regenerateAudio'.
-        await ApiService.instance.regenerateAudio(widget.bookId);
-                                  ^^^^^^^^^^^^^^^
+Try correcting the name to the name of an existing method, or defining a method named 'updateCharacterVoice'.
+          ApiService.instance.updateCharacterVoice(widget.bookId, e.key, e.value.id, e.value.name)));
+                              ^^^^^^^^^^^^^^^^^^^^
 Target kernel_snapshot_program failed: Exception
 
 
@@ -97,5 +97,5 @@ Execution failed for task ':app:compileFlutterBuildRelease'.
 > Get more help at https://help.gradle.org.
 
 BUILD FAILED in 2m 42s
-Running Gradle task 'assembleRelease'...                          162.7s
+Running Gradle task 'assembleRelease'...                          162.8s
 Gradle task assembleRelease failed with exit code 1
