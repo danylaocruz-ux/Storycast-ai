@@ -195,4 +195,13 @@ class ApiService {
 
   Future<String?> getPreference(String key) =>
       _storage.read(key: 'pref_$key');
+
+  Future<List<int>> getVoicePreviewBytes(String voiceId) async {
+    final resp = await _dio.get<List<int>>(
+      '/voices/$voiceId/preview',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return resp.data ?? [];
+  }
 }
+
