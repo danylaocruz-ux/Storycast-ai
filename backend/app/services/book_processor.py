@@ -1,6 +1,6 @@
 """
-Orquestrador do processamento completo de um livro.
-Pipeline: extração → análise → personagens → TTS (edge-tts, gratuito)
+Orquestrador do processamento completo de um livro — LÓGICA RÁDIO-NOVELA.
+Cada bloco de fala/narração é processado individualmente com a voz correta.
 """
 import logging
 import threading
@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 from ..models.book import Book
 from ..models.character import Character
 from ..models.audio_segment import AudioSegment
-from ..services.text_extractor import extract_text, clean_text, split_into_chunks, detect_language
+from ..services.text_extractor import (
+    extract_text, clean_text, split_into_speaker_blocks, detect_language
+)
 from ..services.narrative_analyzer import extract_characters, analyze_segments_batch
 from ..services.voice_assigner import assign_voice
 from ..services.tts_service import generate_audio, estimate_duration
@@ -22,27 +24,23 @@ logger = logging.getLogger(__name__)
 CHAR_COLORS = [
     "#7C3AED", "#2563EB", "#059669", "#DC2626",
     "#D97706", "#DB2777", "#0891B2", "#65A30D",
-    "#7C3AED", "#6366F1",
+    "#9333EA", "#6366F1",
 ]
 
-# Tempo máximo total de processamento (2h)
-MAX_PROCESSING_SECONDS = 7200
+MAX_PROCESSING_SECONDS = 7200  # 2 horas
 
 
 def _keep_alive_ping():
-    """
-    Mantém o servidor Render acordado durante o processamento.
-    O Render free tier dorme após 15min sem requests HTTP.
-    """
+    """Evita que o Render free tier durma durante o processamento."""
     base_url = getattr(settings, 'SERVICE_URL', None) or 'http://localhost:8000'
     url = f"{base_url.rstrip('/')}/health"
     while True:
-        time.sleep(600)  # ping a cada 10 minutos
+        time.sleep(600)
         try:
             requests.get(url, timeout=10)
-            logger.info("Keep-alive ping enviado")
+            logger.info("Keep-alive ping OK")
         except Exception as e:
-            logger.warning(f"Keep-alive ping falhou: {e}")
+            logger.warning(f"Keep-alive falhou: {e}")
 
 
 def process_book(book_id: int, db: Session) -> None:
@@ -50,13 +48,11 @@ def process_book(book_id: int, db: Session) -> None:
     if not book:
         return
 
-    # Inicia thread de keep-alive para o Render não dormir
-    ka_thread = threading.Thread(target=_keep_alive_ping, daemon=True)
-    ka_thread.start()
-
+    threading.Thread(target=_keep_alive_ping, daemon=True).start()
     start_time = time.time()
 
     try:
+        # ── 1. Extração de texto ─────────────────────────────────────────
         _update_status(db, book, "extracting", "Extraindo texto...", 5)
         raw_text = extract_text(book.file_path, book.format)
         text = clean_text(raw_text)
@@ -65,11 +61,13 @@ def process_book(book_id: int, db: Session) -> None:
         book.total_chars = len(text)
         db.commit()
 
-        _update_status(db, book, "analyzing", "Dividindo em segmentos...", 15)
-        chunks = split_into_chunks(text, max_chars=1800)
-        total_chunks = len(chunks)
-        logger.info(f"[Livro {book_id}] {total_chunks} segmentos gerados")
+        # ── 2. Segmentação por falante ────────────────────────────────────
+        _update_status(db, book, "analyzing", "Segmentando por personagens...", 12)
+        blocks = split_into_speaker_blocks(text, max_narrative_chars=500)
+        total_blocks = len(blocks)
+        logger.info(f"[Livro {book_id}] {total_blocks} blocos de fala/narração")
 
+        # ── 3. Identificação de personagens ──────────────────────────────
         _update_status(db, book, "analyzing", "Identificando personagens...", 20)
         if settings.GROQ_API_KEY:
             char_data = extract_characters(text)
@@ -82,15 +80,22 @@ def process_book(book_id: int, db: Session) -> None:
         for i, cd in enumerate(char_data):
             voice = assign_voice(
                 name=cd["name"], gender=cd.get("gender", "neutral"),
-                age_group=cd.get("age_group", "adult"), personality=cd.get("personality", "other"),
-                is_narrator=cd.get("is_narrator", False), used_voice_ids=used_voice_ids,
+                age_group=cd.get("age_group", "adult"),
+                personality=cd.get("personality", "other"),
+                is_narrator=cd.get("is_narrator", False),
+                used_voice_ids=used_voice_ids,
             )
             used_voice_ids.add(voice["id"])
             char = Character(
-                book_id=book_id, name=cd["name"], description=cd.get("description"),
-                gender=cd.get("gender", "neutral"), age_group=cd.get("age_group", "adult"),
-                personality=cd.get("personality"), is_narrator=cd.get("is_narrator", False),
-                voice_id=voice["id"], voice_name=voice["name"],
+                book_id=book_id,
+                name=cd["name"],
+                description=cd.get("description"),
+                gender=cd.get("gender", "neutral"),
+                age_group=cd.get("age_group", "adult"),
+                personality=cd.get("personality"),
+                is_narrator=cd.get("is_narrator", False),
+                voice_id=voice["id"],
+                voice_name=voice["name"],
                 appearance_order=cd.get("appearance_order", i),
                 color=CHAR_COLORS[i % len(CHAR_COLORS)],
             )
@@ -104,21 +109,33 @@ def process_book(book_id: int, db: Session) -> None:
         if narrator is None and char_map:
             narrator = list(char_map.values())[0]
 
-        _update_status(db, book, "analyzing", "Analisando narrativa...", 35)
+        # ── 4. Análise de falantes (rádio-novela) ─────────────────────────
+        _update_status(db, book, "analyzing", "Atribuindo falas aos personagens...", 32)
         if settings.GROQ_API_KEY:
-            analyses = analyze_segments_batch(chunks, character_names, batch_size=15)
+            analyses = analyze_segments_batch(blocks, character_names, batch_size=8)
         else:
-            analyses = [{"character_name": "Narrador", "emotion": "neutral"}] * total_chunks
+            # Sem LLM: usa heurística básica
+            from ..services.narrative_analyzer import _heuristic_with_context, _is_dialogue
+            analyses = []
+            for i, block in enumerate(blocks):
+                prev = blocks[i-1] if i > 0 else None
+                nxt = blocks[i+1] if i < len(blocks)-1 else None
+                result = _heuristic_with_context(block, prev, nxt, character_names)
+                analyses.append(result or {"character_name": "Narrador", "emotion": "neutral"})
 
-        _update_status(db, book, "generating_audio", f"Gerando áudio... 0/{total_chunks}", 40)
+        # Log resumo da distribuição de falas
+        from collections import Counter
+        dist = Counter(a["character_name"] for a in analyses)
+        logger.info(f"[Livro {book_id}] Distribuição de falas: {dict(dist)}")
+
+        # ── 5. Geração de áudio por falante ──────────────────────────────
+        _update_status(db, book, "generating_audio", f"Gerando áudio... 0/{total_blocks}", 38)
         total_duration = 0.0
         failed_segments = 0
 
-        for idx, (chunk, analysis) in enumerate(zip(chunks, analyses)):
-            # Verifica timeout total
-            elapsed = time.time() - start_time
-            if elapsed > MAX_PROCESSING_SECONDS:
-                logger.error(f"Livro {book_id} excedeu {MAX_PROCESSING_SECONDS}s. Parando.")
+        for idx, (block, analysis) in enumerate(zip(blocks, analyses)):
+            if time.time() - start_time > MAX_PROCESSING_SECONDS:
+                logger.error(f"Livro {book_id} excedeu tempo máximo. Encerrando.")
                 break
 
             char_name = analysis.get("character_name", "Narrador")
@@ -126,47 +143,57 @@ def process_book(book_id: int, db: Session) -> None:
             emotion = analysis.get("emotion", "neutral")
 
             audio_path = None
-            duration = estimate_duration(chunk)
+            duration = estimate_duration(block)
 
             if char and char.voice_id:
                 try:
                     audio_path, duration = generate_audio(
-                        text=chunk, voice_id=char.voice_id, emotion=emotion
+                        text=block,
+                        voice_id=char.voice_id,
+                        emotion=emotion,
+                    )
+                    logger.debug(
+                        f"[{idx}/{total_blocks}] {char_name} ({char.voice_name}): "
+                        f"{block[:50]}..."
                     )
                 except Exception as e:
                     failed_segments += 1
-                    logger.warning(f"Falha TTS segmento {idx} (total falhas: {failed_segments}): {e}")
-                    # Continua sem áudio para este segmento — não trava
+                    logger.warning(f"TTS falhou no segmento {idx} ({char_name}): {e}")
 
             seg = AudioSegment(
-                book_id=book_id, character_id=char.id if char else None,
-                segment_index=idx, text=chunk, emotion=emotion,
-                audio_path=audio_path, duration=duration,
+                book_id=book_id,
+                character_id=char.id if char else None,
+                segment_index=idx,
+                text=block,
+                emotion=emotion,
+                audio_path=audio_path,
+                duration=duration,
                 status="ready" if audio_path else "pending",
             )
             db.add(seg)
             total_duration += duration
 
-            # Salva progresso a cada 5 segmentos
             if idx % 5 == 0:
-                progress = 40 + int((idx / total_chunks) * 55)
+                progress = 38 + int((idx / total_blocks) * 57)
                 _update_status(
                     db, book, "generating_audio",
-                    f"Gerando áudio... {idx}/{total_chunks} ({failed_segments} falhas)",
+                    f"Gerando áudio... {idx}/{total_blocks}",
                     progress,
                 )
                 db.commit()
 
-        book.total_segments = total_chunks
+        book.total_segments = total_blocks
         book.total_duration = total_duration
         db.commit()
 
-        if failed_segments == total_chunks:
+        if failed_segments == total_blocks:
             _update_status(db, book, "error",
-                           "Todos os segmentos falharam. Verifique a conexão do servidor.", 0)
+                           "Todos os segmentos falharam no TTS. Verifique a conexão.", 0)
         else:
-            _update_status(db, book, "ready",
-                           f"Processamento concluído! ({failed_segments} segmentos sem áudio)", 100)
+            msg = f"Pronto! {total_blocks} blocos processados"
+            if failed_segments:
+                msg += f" ({failed_segments} sem áudio)"
+            _update_status(db, book, "ready", msg, 100)
 
     except Exception as e:
         logger.error(f"Erro ao processar livro {book_id}: {e}", exc_info=True)
@@ -174,13 +201,12 @@ def process_book(book_id: int, db: Session) -> None:
 
 
 def regenerate_audio(book_id: int, db: Session) -> None:
-    """Re-gera apenas o TTS usando as vozes atuais dos personagens."""
+    """Re-gera apenas o TTS mantendo os falantes já atribuídos."""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         return
 
-    ka_thread = threading.Thread(target=_keep_alive_ping, daemon=True)
-    ka_thread.start()
+    threading.Thread(target=_keep_alive_ping, daemon=True).start()
 
     try:
         segments = (
@@ -189,7 +215,8 @@ def regenerate_audio(book_id: int, db: Session) -> None:
             .order_by(AudioSegment.segment_index)
             .all()
         )
-        characters = {c.id: c for c in db.query(Character).filter(Character.book_id == book_id).all()}
+        characters = {c.id: c for c in
+                      db.query(Character).filter(Character.book_id == book_id).all()}
         total = len(segments)
 
         _update_status(db, book, "generating_audio", "Regenerando áudio com novas vozes...", 0)
@@ -197,12 +224,8 @@ def regenerate_audio(book_id: int, db: Session) -> None:
 
         for idx, seg in enumerate(segments):
             char = characters.get(seg.character_id)
-
             if seg.audio_path:
-                try:
-                    Path(seg.audio_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+                Path(seg.audio_path).unlink(missing_ok=True)
 
             audio_path = None
             duration = estimate_duration(seg.text)
@@ -210,7 +233,9 @@ def regenerate_audio(book_id: int, db: Session) -> None:
             if char and char.voice_id:
                 try:
                     audio_path, duration = generate_audio(
-                        text=seg.text, voice_id=char.voice_id, emotion=seg.emotion or "neutral"
+                        text=seg.text,
+                        voice_id=char.voice_id,
+                        emotion=seg.emotion or "neutral",
                     )
                 except Exception as e:
                     logger.warning(f"Falha TTS segmento {idx}: {e}")
@@ -230,7 +255,7 @@ def regenerate_audio(book_id: int, db: Session) -> None:
         _update_status(db, book, "ready", "Áudio regenerado com sucesso!", 100)
 
     except Exception as e:
-        logger.error(f"Erro ao regenerar áudio do livro {book_id}: {e}", exc_info=True)
+        logger.error(f"Erro ao regenerar áudio: {e}", exc_info=True)
         _update_status(db, book, "error", str(e)[:200], book.progress)
 
 
@@ -245,5 +270,6 @@ def _update_status(db, book, status, message, progress):
 def _default_narrator_data():
     return {
         "name": "Narrador", "description": "Voz narrativa", "gender": "neutral",
-        "age_group": "adult", "personality": "narrator", "is_narrator": True, "appearance_order": 0,
+        "age_group": "adult", "personality": "narrator", "is_narrator": True,
+        "appearance_order": 0,
     }
