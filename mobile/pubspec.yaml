@@ -16,6 +16,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.2.3
   just_audio: ^0.9.40
+  path_provider: ^2.1.4
   audio_session: ^0.1.21
   file_picker: ^8.0.3
   percent_indicator: ^4.2.3
