@@ -25,7 +25,6 @@ class BookCardHorizontal extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Capa
             Container(
               height: 130,
               decoration: BoxDecoration(
@@ -33,11 +32,7 @@ class BookCardHorizontal extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Center(
-                child: Icon(
-                  _formatIcon(book.format),
-                  color: AppColors.primary,
-                  size: 48,
-                ),
+                child: Icon(_formatIcon(book.format), color: AppColors.primary, size: 48),
               ),
             ),
             Padding(
@@ -50,16 +45,12 @@ class BookCardHorizontal extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    book.durationFormatted,
-                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                  ),
+                  Text(book.durationFormatted,
+                    style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                 ],
               ),
             ),
@@ -70,18 +61,27 @@ class BookCardHorizontal extends StatelessWidget {
   }
 
   IconData _formatIcon(String fmt) {
-    const map = {'pdf': Icons.picture_as_pdf, 'epub': Icons.menu_book, 'docx': Icons.article, 'txt': Icons.text_snippet};
+    const map = {
+      'pdf': Icons.picture_as_pdf, 'epub': Icons.menu_book,
+      'docx': Icons.article, 'txt': Icons.text_snippet,
+    };
     return map[fmt] ?? Icons.book;
   }
 }
 
-// ── Card processando ───────────────────────────────────────────────────────────
+// ── Card processando (com botão de excluir) ────────────────────────────────────
 
 class BookCardProcessing extends StatelessWidget {
   final BookModel book;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
-  const BookCardProcessing({super.key, required this.book, required this.onTap});
+  const BookCardProcessing({
+    super.key,
+    required this.book,
+    required this.onTap,
+    this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -97,8 +97,7 @@ class BookCardProcessing extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: 48, height: 48,
               decoration: BoxDecoration(
                 color: AppColors.surfaceVariant,
                 borderRadius: BorderRadius.circular(12),
@@ -115,16 +114,14 @@ class BookCardProcessing extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 6),
                   LinearPercentIndicator(
                     padding: EdgeInsets.zero,
                     lineHeight: 4,
-                    percent: book.progress / 100,
+                    percent: (book.progress / 100).clamp(0.0, 1.0),
                     backgroundColor: AppColors.surfaceVariant,
                     progressColor: AppColors.primary,
                     barRadius: const Radius.circular(4),
@@ -137,10 +134,51 @@ class BookCardProcessing extends StatelessWidget {
                 ],
               ),
             ),
+            if (onDelete != null) ...[
+              const SizedBox(width: 8),
+              // Botão excluir enquanto processa
+              GestureDetector(
+                onTap: () => _confirmDelete(context),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.close, color: AppColors.error, size: 18),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.surfaceCard,
+        title: const Text('Cancelar processamento?',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(
+          'Deseja excluir "${book.title}"?\nO processamento será interrompido e o arquivo removido.',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(_, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(_, true),
+            child: const Text('Excluir', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) onDelete?.call();
   }
 }
 
@@ -173,10 +211,8 @@ class BookCardList extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Ícone
             Container(
-              width: 56,
-              height: 56,
+              width: 56, height: 56,
               decoration: BoxDecoration(
                 color: AppColors.primary.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(12),
@@ -184,7 +220,6 @@ class BookCardList extends StatelessWidget {
               child: Icon(_formatIcon(book.format), color: AppColors.primary, size: 28),
             ),
             const SizedBox(width: 14),
-            // Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,17 +229,13 @@ class BookCardList extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
+                      fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
                     ),
                   ),
                   if (book.author != null) ...[
                     const SizedBox(height: 2),
-                    Text(
-                      book.author!,
-                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                    ),
+                    Text(book.author!,
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                   ],
                   const SizedBox(height: 6),
                   Row(
@@ -212,16 +243,13 @@ class BookCardList extends StatelessWidget {
                       _StatusChip(status: book.status),
                       const SizedBox(width: 8),
                       if (book.isReady)
-                        Text(
-                          book.durationFormatted,
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
+                        Text(book.durationFormatted,
+                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                     ],
                   ),
                 ],
               ),
             ),
-            // Ações
             Column(
               children: [
                 if (onFavorite != null)
@@ -251,7 +279,10 @@ class BookCardList extends StatelessWidget {
   }
 
   IconData _formatIcon(String fmt) {
-    const map = {'pdf': Icons.picture_as_pdf, 'epub': Icons.menu_book, 'docx': Icons.article, 'txt': Icons.text_snippet};
+    const map = {
+      'pdf': Icons.picture_as_pdf, 'epub': Icons.menu_book,
+      'docx': Icons.article, 'txt': Icons.text_snippet,
+    };
     return map[fmt] ?? Icons.book;
   }
 }
@@ -273,10 +304,8 @@ class _StatusChip extends StatelessWidget {
         color: color.withOpacity(0.15),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
-      ),
+      child: Text(label,
+        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
     );
   }
 }
