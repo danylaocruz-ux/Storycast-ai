@@ -38,7 +38,7 @@ def process_book(book_id: int, db: Session) -> None:
         db.commit()
 
         _update_status(db, book, "analyzing", "Dividindo em segmentos...", 15)
-        chunks = split_into_chunks(text, max_chars=600)
+        chunks = split_into_chunks(text, max_chars=1800)
 
         _update_status(db, book, "analyzing", "Identificando personagens...", 20)
         if settings.GROQ_API_KEY:
