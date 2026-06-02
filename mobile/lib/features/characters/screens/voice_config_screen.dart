@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../data/models/character_model.dart';
 import '../../../data/models/voice_model.dart';
 import '../../../data/services/api_service.dart';
@@ -25,6 +29,11 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
   String? _error;
   late TabController _tabController;
 
+  // Preview player
+  final AudioPlayer _previewPlayer = AudioPlayer();
+  String? _playingVoiceId;
+  bool _isPlayingPreview = false;
+
   static const _langs = ['Todos', 'PT-BR', 'EN', 'ES', 'FR'];
 
   @override
@@ -37,6 +46,7 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _previewPlayer.dispose();
     super.dispose();
   }
 
@@ -75,6 +85,41 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
     try { return _voices.firstWhere((v) => v.id == char.voiceId); } catch (_) { return null; }
   }
 
+  Future<void> _playPreview(String voiceId) async {
+    if (_playingVoiceId == voiceId && _isPlayingPreview) {
+      await _previewPlayer.stop();
+      setState(() { _playingVoiceId = null; _isPlayingPreview = false; });
+      return;
+    }
+
+    setState(() { _playingVoiceId = voiceId; _isPlayingPreview = true; });
+
+    try {
+      final bytes = await ApiService.instance.getVoicePreviewBytes(voiceId);
+      final tmpDir = await getTemporaryDirectory();
+      final tmpFile = File('${tmpDir.path}/preview_$voiceId.mp3');
+      await tmpFile.writeAsBytes(bytes);
+
+      await _previewPlayer.stop();
+      await _previewPlayer.setFilePath(tmpFile.path);
+      await _previewPlayer.play();
+      _previewPlayer.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          if (mounted) setState(() { _playingVoiceId = null; _isPlayingPreview = false; });
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() { _playingVoiceId = null; _isPlayingPreview = false; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erro ao reproduzir preview: $e'),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    }
+  }
+
   Future<void> _save() async {
     if (_pendingChanges.isEmpty) { context.pop(); return; }
     setState(() => _isSaving = true);
@@ -82,7 +127,6 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
       await Future.wait(_pendingChanges.entries.map((e) =>
           ApiService.instance.updateCharacterVoice(widget.bookId, e.key, e.value.id, e.value.name)));
       if (!mounted) return;
-      // Pergunta se quer regenerar o áudio
       final regen = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
@@ -93,10 +137,7 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
             style: TextStyle(color: AppColors.textSecondary),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(_, false),
-              child: const Text('Agora não'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(_, false), child: const Text('Agora não')),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
               onPressed: () => Navigator.pop(_, true),
@@ -127,7 +168,8 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
     }
   }
 
-  void _openVoicePicker(CharacterModel char) {
+  void _openVoicePickerFiltered(CharacterModel char) {
+    final currentLang = _langs[_tabController.index];
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -139,10 +181,13 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
         character: char,
         voices: _voices,
         selectedVoiceId: _currentVoice(char)?.id,
+        initialLang: currentLang == 'Todos' ? null : currentLang,
+        playingVoiceId: _playingVoiceId,
         onSelect: (voice) {
           setState(() => _pendingChanges[char.id] = voice);
           Navigator.pop(context);
         },
+        onPreview: _playPreview,
       ),
     );
   }
@@ -172,24 +217,27 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
                   ),
                   child: Text(
                     '${_pendingChanges.length} alterado${_pendingChanges.length > 1 ? 's' : ''}',
-                    style: const TextStyle(color: AppColors.warning, fontSize: 11, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                        color: AppColors.warning, fontSize: 11, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
             ),
         ],
-        bottom: _isLoading ? null : TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          labelColor: AppColors.primary,
-          unselectedLabelColor: AppColors.textHint,
-          indicatorColor: AppColors.primary,
-          tabs: _langs.map((l) {
-            final count = _filteredVoices(l).length;
-            return Tab(text: '$l ($count)');
-          }).toList(),
-        ),
+        bottom: _isLoading
+            ? null
+            : TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                labelColor: AppColors.primary,
+                unselectedLabelColor: AppColors.textHint,
+                indicatorColor: AppColors.primary,
+                tabs: _langs.map((l) {
+                  final count = _filteredVoices(l).length;
+                  return Tab(text: '$l ($count)');
+                }).toList(),
+              ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
@@ -197,7 +245,6 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
               ? _ErrorView(error: _error!, onRetry: _load)
               : Column(
                   children: [
-                    // Info banner
                     Container(
                       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                       padding: const EdgeInsets.all(12),
@@ -206,21 +253,18 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: AppColors.primary.withOpacity(0.2)),
                       ),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.info_outline, color: AppColors.primary, size: 16),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Toque em um personagem para escolher sua voz. Use as abas para filtrar por idioma.',
-                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.4),
-                            ),
+                      child: Row(children: const [
+                        Icon(Icons.info_outline, color: AppColors.primary, size: 16),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Toque em um personagem para escolher sua voz. Use ▶ para ouvir o preview.',
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.4),
                           ),
-                        ],
-                      ),
+                        ),
+                      ]),
                     ),
                     const SizedBox(height: 8),
-                    // Lista de personagens
                     Expanded(
                       child: ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
@@ -228,12 +272,14 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (_, i) {
                           final char = _characters[i];
+                          final voice = _currentVoice(char);
                           return _CharacterVoiceCard(
                             character: char,
-                            currentVoice: _currentVoice(char),
+                            currentVoice: voice,
                             hasChange: _pendingChanges.containsKey(char.id),
-                            availableCount: _filteredVoices(_langs[_tabController.index]).length,
+                            isPlayingPreview: _playingVoiceId == voice?.id && _isPlayingPreview,
                             onTap: () => _openVoicePickerFiltered(char),
+                            onPreview: voice != null ? () => _playPreview(voice.id) : null,
                           );
                         },
                       ),
@@ -248,7 +294,8 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
                 child: ElevatedButton(
                   onPressed: (_isSaving || _isRegenerating) ? null : _save,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _pendingChanges.isEmpty ? AppColors.surfaceVariant : AppColors.primary,
+                    backgroundColor:
+                        _pendingChanges.isEmpty ? AppColors.surfaceVariant : AppColors.primary,
                     foregroundColor: Colors.white,
                     minimumSize: const Size(double.infinity, 52),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -257,10 +304,14 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
                       ? Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const SizedBox(width: 20, height: 20,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                            const SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2)),
                             const SizedBox(width: 10),
-                            Text(_isRegenerating ? 'Iniciando regeneração...' : 'Salvando...'),
+                            Text(_isRegenerating
+                                ? 'Iniciando regeneração...'
+                                : 'Salvando...'),
                           ],
                         )
                       : Text(
@@ -274,28 +325,6 @@ class _VoiceConfigScreenState extends ConsumerState<VoiceConfigScreen>
             ),
     );
   }
-
-  void _openVoicePickerFiltered(CharacterModel char) {
-    final currentLang = _langs[_tabController.index];
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surfaceCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => _VoicePickerSheet(
-        character: char,
-        voices: _voices,
-        selectedVoiceId: _currentVoice(char)?.id,
-        initialLang: currentLang == 'Todos' ? null : currentLang,
-        onSelect: (voice) {
-          setState(() => _pendingChanges[char.id] = voice);
-          Navigator.pop(context);
-        },
-      ),
-    );
-  }
 }
 
 // ── Card de personagem ────────────────────────────────────────────────────────
@@ -304,12 +333,17 @@ class _CharacterVoiceCard extends StatelessWidget {
   final CharacterModel character;
   final VoiceModel? currentVoice;
   final bool hasChange;
-  final int availableCount;
+  final bool isPlayingPreview;
   final VoidCallback onTap;
+  final VoidCallback? onPreview;
 
   const _CharacterVoiceCard({
-    required this.character, required this.currentVoice,
-    required this.hasChange, required this.availableCount, required this.onTap,
+    required this.character,
+    required this.currentVoice,
+    required this.hasChange,
+    required this.isPlayingPreview,
+    required this.onTap,
+    this.onPreview,
   });
 
   @override
@@ -328,6 +362,7 @@ class _CharacterVoiceCard extends StatelessWidget {
         ),
         child: Row(
           children: [
+            // Avatar
             Container(
               width: 46, height: 46,
               decoration: BoxDecoration(
@@ -338,7 +373,8 @@ class _CharacterVoiceCard extends StatelessWidget {
               child: Center(
                 child: Text(
                   character.name.isNotEmpty ? character.name[0].toUpperCase() : '?',
-                  style: TextStyle(color: character.colorValue, fontWeight: FontWeight.w700, fontSize: 18),
+                  style: TextStyle(
+                      color: character.colorValue, fontWeight: FontWeight.w700, fontSize: 18),
                 ),
               ),
             ),
@@ -347,62 +383,84 @@ class _CharacterVoiceCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(character.name,
-                          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
-                          overflow: TextOverflow.ellipsis),
-                      ),
-                      if (character.isNarrator) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text('Narrador',
-                            style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w600)),
+                  Row(children: [
+                    Flexible(
+                      child: Text(character.name,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15),
+                        overflow: TextOverflow.ellipsis),
+                    ),
+                    if (character.isNarrator) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.mic, size: 13, color: AppColors.textSecondary),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          currentVoice != null
-                              ? '${currentVoice!.name} · ${currentVoice!.localeName}'
-                              : 'Nenhuma voz',
+                        child: const Text('Narrador',
                           style: TextStyle(
-                            color: currentVoice != null ? AppColors.textSecondary : AppColors.textHint,
-                            fontSize: 12,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                              color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w600)),
                       ),
-                      if (hasChange) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: AppColors.warning.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text('alterado',
-                            style: TextStyle(color: AppColors.warning, fontSize: 10)),
-                        ),
-                      ],
                     ],
-                  ),
+                  ]),
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    const Icon(Icons.mic, size: 13, color: AppColors.textSecondary),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        currentVoice != null
+                            ? '${currentVoice!.name} · ${currentVoice!.localeName}'
+                            : 'Nenhuma voz selecionada',
+                        style: TextStyle(
+                          color: currentVoice != null
+                              ? AppColors.textSecondary
+                              : AppColors.textHint,
+                          fontSize: 12,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (hasChange) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('alterado',
+                          style: TextStyle(color: AppColors.warning, fontSize: 10)),
+                      ),
+                    ],
+                  ]),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
+            // Botão preview
+            if (onPreview != null)
+              GestureDetector(
+                onTap: onPreview,
+                child: Container(
+                  width: 34, height: 34,
+                  decoration: BoxDecoration(
+                    color: isPlayingPreview
+                        ? AppColors.primary.withOpacity(0.15)
+                        : AppColors.surfaceVariant,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isPlayingPreview ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                    color: AppColors.primary,
+                    size: 18,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: AppColors.textHint),
           ],
         ),
@@ -411,26 +469,35 @@ class _CharacterVoiceCard extends StatelessWidget {
   }
 }
 
-// ── Bottom Sheet com abas de idioma ───────────────────────────────────────────
+// ── Bottom Sheet com preview de voz ──────────────────────────────────────────
 
 class _VoicePickerSheet extends StatefulWidget {
   final CharacterModel character;
   final List<VoiceModel> voices;
   final String? selectedVoiceId;
   final String? initialLang;
+  final String? playingVoiceId;
   final void Function(VoiceModel) onSelect;
+  final Future<void> Function(String voiceId) onPreview;
 
   const _VoicePickerSheet({
-    required this.character, required this.voices,
-    required this.selectedVoiceId, this.initialLang, required this.onSelect,
+    required this.character,
+    required this.voices,
+    required this.selectedVoiceId,
+    this.initialLang,
+    this.playingVoiceId,
+    required this.onSelect,
+    required this.onPreview,
   });
 
   @override
   State<_VoicePickerSheet> createState() => _VoicePickerSheetState();
 }
 
-class _VoicePickerSheetState extends State<_VoicePickerSheet> with SingleTickerProviderStateMixin {
+class _VoicePickerSheetState extends State<_VoicePickerSheet>
+    with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
+  String? _localPlayingId;
   static const _tabs = ['Todos', 'PT-BR', 'EN', 'ES', 'FR'];
 
   @override
@@ -454,54 +521,60 @@ class _VoicePickerSheetState extends State<_VoicePickerSheet> with SingleTickerP
     return widget.voices;
   }
 
+  Future<void> _handlePreview(String voiceId) async {
+    setState(() => _localPlayingId = voiceId);
+    await widget.onPreview(voiceId);
+    if (mounted) setState(() => _localPlayingId = null);
+  }
+
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.85,
+      initialChildSize: 0.9,
       maxChildSize: 0.95,
       minChildSize: 0.5,
       builder: (_, scrollCtrl) => Column(
         children: [
-          // Handle
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 12, bottom: 8),
               width: 40, height: 4,
-              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                  color: AppColors.border, borderRadius: BorderRadius.circular(2)),
             ),
           ),
-          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 36, height: 36,
-                  decoration: BoxDecoration(
-                    color: widget.character.colorValue.withOpacity(0.2), shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(widget.character.name[0].toUpperCase(),
-                      style: TextStyle(color: widget.character.colorValue, fontWeight: FontWeight.w700, fontSize: 16)),
-                  ),
+            child: Row(children: [
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: widget.character.colorValue.withOpacity(0.2),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.character.name,
-                        style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
-                      const Text('Escolha uma voz',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-                    ],
-                  ),
+                child: Center(
+                  child: Text(widget.character.name[0].toUpperCase(),
+                    style: TextStyle(
+                        color: widget.character.colorValue,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16)),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(widget.character.name,
+                    style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16)),
+                  const Text('Toque em ▶ para ouvir a voz antes de escolher',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                ]),
+              ),
+            ]),
           ),
-          // Abas de idioma
           TabBar(
             controller: _tabCtrl,
             isScrollable: true,
@@ -512,7 +585,6 @@ class _VoicePickerSheetState extends State<_VoicePickerSheet> with SingleTickerP
             dividerColor: AppColors.border,
             tabs: _tabs.map((t) => Tab(text: t)).toList(),
           ),
-          // Lista de vozes
           Expanded(
             child: TabBarView(
               controller: _tabCtrl,
@@ -521,10 +593,8 @@ class _VoicePickerSheetState extends State<_VoicePickerSheet> with SingleTickerP
                 if (voices.isEmpty) {
                   return const Center(
                     child: Text('Nenhuma voz neste idioma',
-                      style: TextStyle(color: AppColors.textHint)),
-                  );
+                        style: TextStyle(color: AppColors.textHint)));
                 }
-                // Agrupar por localidade dentro do tab "Todos"
                 final grouped = <String, List<VoiceModel>>{};
                 for (final v in voices) {
                   grouped.putIfAbsent(v.localeName, () => []).add(v);
@@ -536,7 +606,9 @@ class _VoicePickerSheetState extends State<_VoicePickerSheet> with SingleTickerP
                     ...entry.value.map((v) => _VoiceTile(
                       voice: v,
                       isSelected: v.id == widget.selectedVoiceId,
+                      isPlaying: _localPlayingId == v.id,
                       onTap: () => widget.onSelect(v),
+                      onPreview: () => _handlePreview(v.id),
                     )),
                   ]).toList(),
                 );
@@ -566,61 +638,98 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
     child: Text(label,
-      style: const TextStyle(color: AppColors.textHint, fontSize: 12,
-          fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+      style: const TextStyle(
+          color: AppColors.textHint,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5)),
   );
 }
 
 class _VoiceTile extends StatelessWidget {
   final VoiceModel voice;
   final bool isSelected;
+  final bool isPlaying;
   final VoidCallback onTap;
-  const _VoiceTile({required this.voice, required this.isSelected, required this.onTap});
+  final VoidCallback onPreview;
+
+  const _VoiceTile({
+    required this.voice,
+    required this.isSelected,
+    required this.isPlaying,
+    required this.onTap,
+    required this.onPreview,
+  });
 
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: isSelected ? AppColors.primary.withOpacity(0.08) : Colors.transparent,
-      child: Row(
-        children: [
-          Container(
+      child: Row(children: [
+        // Ícone de gênero
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: voice.gender == 'male'
+                ? AppColors.info.withOpacity(0.12)
+                : AppColors.primary.withOpacity(0.12),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(voice.genderIcon,
+              style: TextStyle(
+                  fontSize: 16,
+                  color: voice.gender == 'male' ? AppColors.info : AppColors.primary)),
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Nome e gênero
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(voice.name,
+              style: TextStyle(
+                color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                fontSize: 15,
+              )),
+            Text(voice.gender == 'male' ? 'Masculino' : 'Feminino',
+              style: const TextStyle(color: AppColors.textHint, fontSize: 12)),
+          ]),
+        ),
+        // Botão preview (ouça antes de escolher)
+        GestureDetector(
+          onTap: onPreview,
+          child: Container(
             width: 36, height: 36,
+            margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
-              color: voice.gender == 'male'
-                  ? AppColors.info.withOpacity(0.12)
-                  : AppColors.primary.withOpacity(0.12),
+              color: isPlaying
+                  ? AppColors.primary.withOpacity(0.15)
+                  : AppColors.surfaceVariant,
               shape: BoxShape.circle,
             ),
-            child: Center(
-              child: Text(voice.genderIcon,
-                style: TextStyle(fontSize: 16,
-                    color: voice.gender == 'male' ? AppColors.info : AppColors.primary)),
-            ),
+            child: isPlaying
+                ? const SizedBox(
+                    width: 20, height: 20,
+                    child: Center(
+                      child: SizedBox(
+                        width: 16, height: 16,
+                        child: CircularProgressIndicator(
+                            color: AppColors.primary, strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                : const Icon(Icons.play_arrow_rounded, color: AppColors.primary, size: 20),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(voice.name,
-                  style: TextStyle(
-                    color: isSelected ? AppColors.primary : AppColors.textPrimary,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                    fontSize: 15,
-                  )),
-                Text(voice.gender == 'male' ? 'Masculino' : 'Feminino',
-                  style: const TextStyle(color: AppColors.textHint, fontSize: 12)),
-              ],
-            ),
-          ),
-          if (isSelected)
-            const Icon(Icons.check_circle, color: AppColors.primary, size: 22)
-          else
-            const Icon(Icons.radio_button_unchecked, color: AppColors.border, size: 22),
-        ],
-      ),
+        ),
+        // Seleção
+        if (isSelected)
+          const Icon(Icons.check_circle, color: AppColors.primary, size: 22)
+        else
+          const Icon(Icons.radio_button_unchecked, color: AppColors.border, size: 22),
+      ]),
     ),
   );
 }
