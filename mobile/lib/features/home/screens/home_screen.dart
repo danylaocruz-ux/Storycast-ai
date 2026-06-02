@@ -20,6 +20,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Future.microtask(() => ref.read(libraryProvider.notifier).load());
   }
 
+  Future<void> _confirmDelete(BuildContext context, int bookId, String title) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.surfaceCard,
+        title: const Text('Cancelar processamento?',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(
+          'Deseja excluir "$title"?\nO processamento será interrompido e o arquivo removido.',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(_, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(_, true),
+            child: const Text('Excluir', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true && context.mounted) {
+      ref.read(libraryProvider.notifier).deleteBook(bookId);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
@@ -43,28 +71,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           Text(
                             'Olá, ${user?.name.split(' ').first ?? 'Leitor'} 👋',
                             style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
+                              fontSize: 22, fontWeight: FontWeight.w700, color: AppColors.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 4),
                           const Text(
                             'O que vamos ouvir hoje?',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.textSecondary,
-                            ),
+                            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
                           ),
                         ],
                       ),
                     ),
-                    // Avatar
                     GestureDetector(
                       onTap: () => context.go('/settings'),
                       child: Container(
-                        width: 44,
-                        height: 44,
+                        width: 44, height: 44,
                         decoration: BoxDecoration(
                           gradient: AppColors.gradientPrimary,
                           borderRadius: BorderRadius.circular(22),
@@ -73,9 +94,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           child: Text(
                             user?.initials ?? 'U',
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
+                              color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16,
                             ),
                           ),
                         ),
@@ -109,9 +128,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const Text(
                         'Continuar ouvindo',
                         style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
+                          fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
                         ),
                       ),
                       TextButton(
@@ -143,18 +160,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
 
-            // ── Processando ───────────────────────────────────────────────
+            // ── Processando (com botão excluir) ───────────────────────────
             if (library.books.any((b) => b.isProcessing)) ...[
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
-                  child: const Text(
-                    'Processando',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: const [
+                      Text(
+                        'Processando',
+                        style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -162,11 +182,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 delegate: SliverChildBuilderDelegate(
                   (ctx, idx) {
                     final processing = library.books.where((b) => b.isProcessing).toList();
+                    final book = processing[idx];
                     return Padding(
                       padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
                       child: BookCardProcessing(
-                        book: processing[idx],
-                        onTap: () => context.go('/processing/${processing[idx].id}'),
+                        book: book,
+                        onTap: () => context.go('/processing/${book.id}'),
+                        onDelete: () => _confirmDelete(context, book.id, book.title),
                       ),
                     );
                   },
@@ -205,23 +227,16 @@ class _UploadBanner extends StatelessWidget {
                 children: const [
                   Text(
                     'Adicionar livro',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
                   ),
                   SizedBox(height: 4),
-                  Text(
-                    'PDF, EPUB, DOCX ou TXT',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
+                  Text('PDF, EPUB, DOCX ou TXT',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
                 ],
               ),
             ),
             Container(
-              width: 56,
-              height: 56,
+              width: 56, height: 56,
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(16),
