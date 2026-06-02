@@ -1,15 +1,12 @@
 """
 Serviço de extração de texto.
 Suporta: PDF, EPUB, DOCX, TXT
-Preparado para: MOBI, RTF, OCR (imagens)
 """
 import re
 from pathlib import Path
-from typing import Optional
 
 
 def extract_text(file_path: str, fmt: str) -> str:
-    """Extrai texto bruto do arquivo conforme o formato."""
     extractors = {
         "pdf": _extract_pdf,
         "epub": _extract_epub,
@@ -25,34 +22,27 @@ def extract_text(file_path: str, fmt: str) -> str:
 def _extract_pdf(path: str) -> str:
     from pypdf import PdfReader
     reader = PdfReader(path)
-    pages = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        pages.append(text)
-    return "\n\n".join(pages)
+    return "\n\n".join(page.extract_text() or "" for page in reader.pages)
 
 
 def _extract_epub(path: str) -> str:
     import ebooklib
     from ebooklib import epub
     from bs4 import BeautifulSoup
-
     book = epub.read_epub(path, options={"ignore_ncx": True})
     chapters = []
     for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
         soup = BeautifulSoup(item.get_content(), "html.parser")
         for tag in soup(["script", "style"]):
             tag.decompose()
-        text = soup.get_text(separator="\n")
-        chapters.append(text)
+        chapters.append(soup.get_text(separator="\n"))
     return "\n\n".join(chapters)
 
 
 def _extract_docx(path: str) -> str:
     from docx import Document
     doc = Document(path)
-    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-    return "\n\n".join(paragraphs)
+    return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
 
 def _extract_txt(path: str) -> str:
@@ -61,38 +51,82 @@ def _extract_txt(path: str) -> str:
 
 
 def clean_text(text: str) -> str:
-    """Limpa o texto extraído para processamento."""
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     return text.strip()
 
 
+# ── Constantes de diálogo ────────────────────────────────────────────────────
+
+_DIALOGUE_STARTERS = ('—', '–', '—', '–', '"', '“', '”')
+
+
+def _is_dialogue_line(line: str) -> bool:
+    """Retorna True se a linha é uma fala de personagem (começa com travessão/aspas)."""
+    return line.lstrip().startswith(_DIALOGUE_STARTERS)
+
+
+# ── Segmentação por falante ─────────────────────────────────────────────────
+
+def split_into_speaker_blocks(text: str, max_narrative_chars: int = 500) -> list[str]:
+    """
+    Divide o texto em blocos por falante — LÓGICA DE RÁDIO-NOVELA.
+
+    Regras:
+    - Cada linha de diálogo (começa com —) = bloco INDIVIDUAL e exclusivo
+    - Linhas de narração consecutivas são agrupadas até max_narrative_chars
+    - NUNCA mistura diálogo e narração no mesmo bloco
+    - NUNCA mistura falas de diferentes personagens no mesmo bloco
+
+    Isso garante que cada bloco tenha UM ÚNICO dono (locutor).
+    """
+    # Divide em linhas individuais
+    raw_lines = re.split(r'\n+', text)
+    lines = [l.strip() for l in raw_lines if l.strip()]
+
+    blocks: list[str] = []
+    current_narrative = ""
+
+    for line in lines:
+        if _is_dialogue_line(line):
+            # Salva narração acumulada antes de entrar no diálogo
+            if current_narrative:
+                blocks.append(current_narrative.strip())
+                current_narrative = ""
+            # Cada fala = bloco próprio, independente do tamanho
+            blocks.append(line.strip())
+        else:
+            # Narração: agrupa parágrafos curtos para evitar TTS excessivamente fragmentado
+            if current_narrative and len(current_narrative) + len(line) + 1 > max_narrative_chars:
+                blocks.append(current_narrative.strip())
+                current_narrative = line
+            else:
+                current_narrative = (current_narrative + " " + line).strip() if current_narrative else line
+
+    if current_narrative:
+        blocks.append(current_narrative.strip())
+
+    # Remove blocos vazios e muito curtos (lixo do parser)
+    return [b for b in blocks if b.strip() and len(b.strip()) >= 2]
+
+
 def split_into_chunks(text: str, max_chars: int = 1800) -> list[str]:
     """
-    Divide o texto em chunks maiores para reduzir chamadas TTS.
-    Chunks maiores = menos resets de prosódia = áudio mais natural.
-
-    Estratégia:
-    1. Tenta agrupar parágrafos completos até atingir max_chars
-    2. Só divide no meio de um parágrafo se ele for muito longo
-    3. Divisões sempre no fim de frases completas (.!?)
+    Mantida para compatibilidade — use split_into_speaker_blocks para novo processamento.
+    Divide por parágrafos agrupados até max_chars.
     """
-    # Divide por parágrafos primeiro
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks: list[str] = []
     current = ""
 
     for para in paragraphs:
-        # Parágrafo cabe no chunk atual
         if len(current) + len(para) + 2 <= max_chars:
             current = f"{current}\n\n{para}".strip() if current else para
         else:
-            # Salva chunk atual se não estiver vazio
             if current:
                 chunks.append(current)
                 current = ""
-            # Parágrafo maior que max_chars → divide por sentenças
             if len(para) > max_chars:
                 sentences = re.split(r"(?<=[.!?])\s+", para)
                 for sent in sentences:
@@ -101,19 +135,7 @@ def split_into_chunks(text: str, max_chars: int = 1800) -> list[str]:
                     else:
                         if current:
                             chunks.append(current)
-                        # Sentença gigante: força divisão por palavras
-                        if len(sent) > max_chars:
-                            words = sent.split()
-                            current = ""
-                            for w in words:
-                                if len(current) + len(w) + 1 <= max_chars:
-                                    current = f"{current} {w}".strip()
-                                else:
-                                    if current:
-                                        chunks.append(current)
-                                    current = w
-                        else:
-                            current = sent
+                        current = sent if len(sent) <= max_chars else sent[:max_chars]
             else:
                 current = para
 
@@ -124,11 +146,8 @@ def split_into_chunks(text: str, max_chars: int = 1800) -> list[str]:
 
 
 def detect_language(text: str) -> str:
-    """Detecção simples de idioma por frequência de palavras comuns."""
     sample = text[:2000].lower()
-    pt_words = sum(sample.count(w) for w in [" de ", " e ", " que ", " para ", " não ", " em ", " uma "])
-    en_words = sum(sample.count(w) for w in [" the ", " and ", " that ", " for ", " not ", " in ", " an "])
-    es_words = sum(sample.count(w) for w in [" de ", " y ", " que ", " para ", " no ", " en ", " una "])
-
-    scores = {"pt": pt_words, "en": en_words, "es": es_words}
-    return max(scores, key=lambda k: scores[k])
+    pt = sum(sample.count(w) for w in [" de ", " e ", " que ", " para ", " não ", " em ", " uma "])
+    en = sum(sample.count(w) for w in [" the ", " and ", " that ", " for ", " not ", " in ", " an "])
+    es = sum(sample.count(w) for w in [" de ", " y ", " que ", " para ", " no ", " en ", " una "])
+    return max({"pt": pt, "en": en, "es": es}, key=lambda k: {"pt": pt, "en": en, "es": es}[k])
