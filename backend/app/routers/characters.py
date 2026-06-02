@@ -1,5 +1,7 @@
 import threading
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+import asyncio
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from ..database import get_db, SessionLocal
 from ..models.user import User
@@ -16,6 +18,31 @@ router = APIRouter(tags=["characters"])
 def available_voices(current_user: User = Depends(get_current_user)):
     """Lista vozes disponíveis agrupadas por idioma."""
     return list_available_voices()
+
+
+@router.get("/voices/{voice_id}/preview")
+async def preview_voice(
+    voice_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Gera áudio de amostra para preview de uma voz (MP3)."""
+    from ..services.tts_service import generate_audio
+    import asyncio
+
+    sample_text = "Olá! Esta é a minha voz. Posso ser a voz de um personagem no seu audiobook."
+
+    try:
+        loop = asyncio.get_event_loop()
+        audio_path, _ = await loop.run_in_executor(
+            None, lambda: generate_audio(text=sample_text, voice_id=voice_id, emotion="neutral")
+        )
+        path = Path(audio_path)
+        content = path.read_bytes()
+        path.unlink(missing_ok=True)
+        return Response(content=content, media_type="audio/mpeg",
+                        headers={"Cache-Control": "no-cache"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar preview: {str(e)}")
 
 
 @router.get("/books/{book_id}/characters", response_model=list[CharacterResponse])
