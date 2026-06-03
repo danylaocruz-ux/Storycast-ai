@@ -57,17 +57,23 @@ def process_book(book_id: int, db: Session) -> None:
         # ── 1. Extração de texto ─────────────────────────────────────────
         _update_status(db, book, "extracting", "Extraindo texto...", 5)
 
-        # Verifica se arquivo ainda existe (Render pode ter reiniciado entre upload e processamento)
-        if not Path(book.file_path).exists():
-            raise FileNotFoundError(
-                f"Arquivo não encontrado: {book.file_path}. "
-                "O servidor reiniciou após o upload. Por favor, envie o arquivo novamente."
-            )
+        # Se arquivo sumiu do disco (Render reiniciou), restaura do banco
+        file_path = book.file_path
+        if not Path(file_path).exists():
+            if book.file_content:
+                logger.info(f"[Livro {book_id}] Arquivo ausente — restaurando do banco de dados")
+                Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(file_path).write_bytes(book.file_content)
+            else:
+                raise FileNotFoundError(
+                    "Arquivo não encontrado e sem backup no banco. "
+                    "Por favor, envie o arquivo novamente."
+                )
 
         # Extrai texto com timeout de 90s (PDFs complexos podem travar)
         import concurrent.futures as _cf
         with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
-            _fut = _pool.submit(extract_text, book.file_path, book.format)
+            _fut = _pool.submit(extract_text, file_path, book.format)
             try:
                 raw_text = _fut.result(timeout=90)
             except _cf.TimeoutError:
