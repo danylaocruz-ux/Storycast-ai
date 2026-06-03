@@ -37,7 +37,7 @@ async def upload_book(
     current_user: User = Depends(get_current_user),
 ):
     fmt = validate_file(file)
-    file_path, file_size = await save_upload(file, subfolder="books")
+    file_path, file_size, file_content = await save_upload(file, subfolder="books")
 
     # Tenta extrair título do nome do arquivo
     raw_name = file.filename or "Livro Sem Título"
@@ -49,6 +49,7 @@ async def upload_book(
         format=fmt,
         file_path=file_path,
         file_size=file_size,
+        file_content=file_content,  # persistido no DB — sobrevive a reinícios do Render
         status="pending",
     )
     db.add(book)
