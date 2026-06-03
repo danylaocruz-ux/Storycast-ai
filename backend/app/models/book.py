@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Float, ForeignKey, DateTime, Text, func
+from sqlalchemy import String, Integer, Float, ForeignKey, DateTime, Text, LargeBinary, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from ..database import Base
@@ -14,6 +14,7 @@ class Book(Base):
     author: Mapped[str] = mapped_column(String(255), nullable=True)
     format: Mapped[str] = mapped_column(String(20), nullable=False)   # pdf, epub, docx, txt
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_content: Mapped[bytes] = mapped_column(LargeBinary, nullable=True)  # conteúdo persistido no DB
     cover_path: Mapped[str] = mapped_column(String(500), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0)        # bytes
 
