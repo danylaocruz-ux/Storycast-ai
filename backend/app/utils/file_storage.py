@@ -30,10 +30,10 @@ def validate_file(file: UploadFile) -> str:
     return ext.lstrip(".")
 
 
-async def save_upload(file: UploadFile, subfolder: str = "books") -> tuple[str, int]:
+async def save_upload(file: UploadFile, subfolder: str = "books") -> tuple[str, int, bytes]:
     """
-    Salva arquivo enviado e retorna (caminho_relativo, tamanho_bytes).
-    Lê em chunks para evitar estouro de memória em arquivos grandes.
+    Salva arquivo enviado e retorna (caminho, tamanho_bytes, conteúdo_bytes).
+    Conteúdo também retornado para persistir no banco (sobrevive a reinícios do Render).
     """
     ext = get_extension(file.filename or ".bin")
     filename = f"{uuid.uuid4().hex}{ext}"
@@ -41,6 +41,7 @@ async def save_upload(file: UploadFile, subfolder: str = "books") -> tuple[str, 
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / filename
 
+    chunks = []
     total = 0
     async with aiofiles.open(dest, "wb") as out:
         while chunk := await file.read(1024 * 1024):  # lê 1 MB por vez
@@ -50,8 +51,9 @@ async def save_upload(file: UploadFile, subfolder: str = "books") -> tuple[str, 
                 dest.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="Arquivo excede 100 MB")
             await out.write(chunk)
+            chunks.append(chunk)
 
-    return str(dest), total
+    return str(dest), total, b"".join(chunks)
 
 
 def delete_file(path: str) -> None:
