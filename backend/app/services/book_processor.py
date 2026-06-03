@@ -1,6 +1,7 @@
 """
 Orquestrador do processamento completo de um livro — LÓGICA RÁDIO-NOVELA.
 Cada bloco de fala/narração é processado individualmente com a voz correta.
+TTS gerado em paralelo (lotes de 5) para performance.
 """
 import logging
 import threading
@@ -16,7 +17,7 @@ from ..services.text_extractor import (
 )
 from ..services.narrative_analyzer import extract_characters, analyze_segments_batch
 from ..services.voice_assigner import assign_voice
-from ..services.tts_service import generate_audio, estimate_duration
+from ..services.tts_service import generate_audio_batch, estimate_duration
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ CHAR_COLORS = [
 ]
 
 MAX_PROCESSING_SECONDS = 7200  # 2 horas
+TTS_BATCH_SIZE = 20  # segmentos por lote de TTS paralelo
 
 
 def _keep_alive_ping():
@@ -114,8 +116,7 @@ def process_book(book_id: int, db: Session) -> None:
         if settings.GROQ_API_KEY:
             analyses = analyze_segments_batch(blocks, character_names, batch_size=8)
         else:
-            # Sem LLM: usa heurística básica
-            from ..services.narrative_analyzer import _heuristic_with_context, _is_dialogue
+            from ..services.narrative_analyzer import _heuristic_with_context
             analyses = []
             for i, block in enumerate(blocks):
                 prev = blocks[i-1] if i > 0 else None
@@ -123,64 +124,83 @@ def process_book(book_id: int, db: Session) -> None:
                 result = _heuristic_with_context(block, prev, nxt, character_names)
                 analyses.append(result or {"character_name": "Narrador", "emotion": "neutral"})
 
-        # Log resumo da distribuição de falas
         from collections import Counter
         dist = Counter(a["character_name"] for a in analyses)
         logger.info(f"[Livro {book_id}] Distribuição de falas: {dict(dist)}")
 
-        # ── 5. Geração de áudio por falante ──────────────────────────────
+        # ── 5. Geração de áudio em paralelo (lotes de TTS_BATCH_SIZE) ────
         _update_status(db, book, "generating_audio", f"Gerando áudio... 0/{total_blocks}", 38)
         total_duration = 0.0
         failed_segments = 0
 
-        for idx, (block, analysis) in enumerate(zip(blocks, analyses)):
-            if time.time() - start_time > MAX_PROCESSING_SECONDS:
-                logger.error(f"Livro {book_id} excedeu tempo máximo. Encerrando.")
-                break
-
+        # Prepara todos os segmentos
+        seg_meta = []
+        for block, analysis in zip(blocks, analyses):
             char_name = analysis.get("character_name", "Narrador")
             char = char_map.get(char_name, narrator)
             emotion = analysis.get("emotion", "neutral")
+            seg_meta.append({
+                "block": block,
+                "char": char,
+                "char_name": char_name,
+                "emotion": emotion,
+            })
 
-            audio_path = None
-            duration = estimate_duration(block)
+        # Processa em lotes paralelos
+        audio_results: list[tuple] = []  # (path_or_None, duration)
 
-            if char and char.voice_id:
-                try:
-                    audio_path, duration = generate_audio(
-                        text=block,
-                        voice_id=char.voice_id,
-                        emotion=emotion,
-                    )
-                    logger.debug(
-                        f"[{idx}/{total_blocks}] {char_name} ({char.voice_name}): "
-                        f"{block[:50]}..."
-                    )
-                except Exception as e:
-                    failed_segments += 1
-                    logger.warning(f"TTS falhou no segmento {idx} ({char_name}): {e}")
+        for batch_start in range(0, total_blocks, TTS_BATCH_SIZE):
+            if time.time() - start_time > MAX_PROCESSING_SECONDS:
+                logger.error(f"Livro {book_id} excedeu tempo máximo. Encerrando.")
+                # Preenche restantes com None
+                remaining = total_blocks - len(audio_results)
+                audio_results.extend([(None, 0.0)] * remaining)
+                break
 
+            batch = seg_meta[batch_start:batch_start + TTS_BATCH_SIZE]
+            tts_inputs = []
+            for m in batch:
+                char = m["char"]
+                tts_inputs.append({
+                    "text": m["block"],
+                    "voice_id": char.voice_id if char else None,
+                    "emotion": m["emotion"],
+                    "context_text": "",
+                })
+
+            batch_results = generate_audio_batch(tts_inputs)
+            audio_results.extend(batch_results)
+
+            # Atualiza progresso após cada lote
+            done = min(batch_start + TTS_BATCH_SIZE, total_blocks)
+            progress = 38 + int((done / total_blocks) * 57)
+            _update_status(
+                db, book, "generating_audio",
+                f"Gerando áudio... {done}/{total_blocks}",
+                progress,
+            )
+            db.commit()
+            logger.info(f"[Livro {book_id}] Lote TTS {batch_start}-{done} concluído")
+
+        # Persiste segmentos no banco
+        for idx, (meta, (audio_path, duration)) in enumerate(zip(seg_meta, audio_results)):
+            if audio_path is None:
+                failed_segments += 1
+                duration = estimate_duration(meta["block"])
+
+            char = meta["char"]
             seg = AudioSegment(
                 book_id=book_id,
                 character_id=char.id if char else None,
                 segment_index=idx,
-                text=block,
-                emotion=emotion,
+                text=meta["block"],
+                emotion=meta["emotion"],
                 audio_path=audio_path,
                 duration=duration,
                 status="ready" if audio_path else "pending",
             )
             db.add(seg)
             total_duration += duration
-
-            if idx % 5 == 0:
-                progress = 38 + int((idx / total_blocks) * 57)
-                _update_status(
-                    db, book, "generating_audio",
-                    f"Gerando áudio... {idx}/{total_blocks}",
-                    progress,
-                )
-                db.commit()
 
         book.total_segments = total_blocks
         book.total_duration = total_duration
@@ -220,36 +240,43 @@ def regenerate_audio(book_id: int, db: Session) -> None:
         total = len(segments)
 
         _update_status(db, book, "generating_audio", "Regenerando áudio com novas vozes...", 0)
-        total_duration = 0.0
 
-        for idx, seg in enumerate(segments):
-            char = characters.get(seg.character_id)
+        # Deleta áudios antigos
+        for seg in segments:
             if seg.audio_path:
                 Path(seg.audio_path).unlink(missing_ok=True)
 
-            audio_path = None
-            duration = estimate_duration(seg.text)
+        # Prepara inputs TTS
+        tts_inputs = []
+        for seg in segments:
+            char = characters.get(seg.character_id)
+            tts_inputs.append({
+                "text": seg.text,
+                "voice_id": char.voice_id if char else None,
+                "emotion": seg.emotion or "neutral",
+            })
 
-            if char and char.voice_id:
-                try:
-                    audio_path, duration = generate_audio(
-                        text=seg.text,
-                        voice_id=char.voice_id,
-                        emotion=seg.emotion or "neutral",
-                    )
-                except Exception as e:
-                    logger.warning(f"Falha TTS segmento {idx}: {e}")
+        # Gera em lotes paralelos
+        all_results = []
+        for batch_start in range(0, total, TTS_BATCH_SIZE):
+            batch = tts_inputs[batch_start:batch_start + TTS_BATCH_SIZE]
+            batch_results = generate_audio_batch(batch)
+            all_results.extend(batch_results)
 
+            done = min(batch_start + TTS_BATCH_SIZE, total)
+            progress = int((done / max(total, 1)) * 100)
+            _update_status(db, book, "generating_audio",
+                           f"Regenerando... {done}/{total}", progress)
+            db.commit()
+
+        total_duration = 0.0
+        for seg, (audio_path, duration) in zip(segments, all_results):
+            if audio_path is None:
+                duration = estimate_duration(seg.text)
             seg.audio_path = audio_path
             seg.duration = duration
             seg.status = "ready" if audio_path else "pending"
             total_duration += duration
-
-            if idx % 5 == 0:
-                progress = int((idx / max(total, 1)) * 100)
-                _update_status(db, book, "generating_audio",
-                               f"Regenerando... {idx}/{total}", progress)
-                db.commit()
 
         book.total_duration = total_duration
         _update_status(db, book, "ready", "Áudio regenerado com sucesso!", 100)
